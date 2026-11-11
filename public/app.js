@@ -65,6 +65,7 @@
     else if (state.screen === 'toss') renderToss();
     else if (state.screen === 'play') renderPlay();
     else if (state.screen === 'break') renderBreak();
+    else if (state.screen === 'superover') renderSuperOverBreak();
     else if (state.screen === 'result') renderResult();
   }
 
@@ -187,7 +188,7 @@
   }
   function resumeLive() {
     const m = state.match, i = inn();
-    state.screen = i.done && m.innings.length === 1 ? 'break' : 'play';
+    state.screen = !i.done ? 'play' : m.result ? 'result' : m.innings.length === 1 ? 'break' : 'superover';
     render();
     if (state.screen === 'play' && E.needsBowler(m) && !i.done) openBowlerPicker();
   }
@@ -205,7 +206,7 @@
     const m = state.match, i = inn();
     saveLive();
     if (i.done) {
-      state.screen = m.innings.length === 1 ? 'break' : 'result';
+      state.screen = m.result ? 'result' : m.innings.length === 1 ? 'break' : 'superover';
       if (state.screen === 'result' && state.ctx && !state.ctx.recorded) {
         state.ctx.recorded = true;
         C.recordMatch(state.db, state.ctx.compId, state.ctx.fixtureId, m, 'played');
@@ -345,7 +346,7 @@
         <div class="sb-team">${teamDot(t)}${esc(t.name)}</div>
         <div class="badges">
           ${i.freeHit ? '<span class="badge fh">Free hit</span>' : ''}
-          <span class="badge">${phase === 'powerplay' ? 'Powerplay' : phase === 'death' ? 'Death overs' : 'Middle overs'}</span>
+          <span class="badge ${i.superOver ? 'so' : ''}">${i.superOver ? `${i.superOver > 1 ? i.superOver + '. ' : ''}Super Over` : phase === 'powerplay' ? 'Powerplay' : phase === 'death' ? 'Death overs' : 'Middle overs'}</span>
         </div>
       </div>
       <div class="sb-main">
@@ -353,7 +354,7 @@
         <div class="sb-overs">${E.oversStr(i.balls)} / ${m.overs} ov</div>
       </div>
       <div class="sb-sub">${sub}</div>
-      <div class="sb-vs">vs ${esc(bt.name)}${m.innings.length === 2 ? ` · 1st innings ${m.innings[0].runs}/${m.innings[0].wkts}` : ''}</div>
+      <div class="sb-vs">vs ${esc(bt.name)}${i.superOver ? ` · scores were level on ${m.innings[0].runs}` : m.innings.length === 2 ? ` · 1st innings ${m.innings[0].runs}/${m.innings[0].wkts}` : ''}</div>
       ${target}
     </div>`;
   }
@@ -466,7 +467,7 @@
   function bowlingRows(I, opts) {
     const m = state.match, bw = team(I.bowl);
     const list = bw.players.map((p, idx) => ({ p, idx, s: I.bowlers[idx] }))
-      .filter(x => x.p.type || x.s)
+      .filter(x => I.superOver ? x.s : (x.p.type || x.s))
       .sort((a, b) => {
         const ao = a.s ? a.s.order : 99, bo = b.s ? b.s.order : 99;
         return ao - bo || b.p.bowl - a.p.bowl;
@@ -536,11 +537,11 @@
       return `<tr class="${atCrease ? 'batting' : ''}"><td>${esc(p.name)}<span class="how">${esc(how)}</span></td>
         <td><b>${b.runs}</b></td><td>${b.balls}</td><td>${b.fours}</td><td>${b.sixes}</td><td>${sr}</td></tr>`;
     }).join('');
-    const dnb = I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].name);
+    const dnb = I.superOver ? [] : I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].name);
     const ex = I.extras.wd + I.extras.nb;
     const fow = I.fow.map(f => `${f.runs}-${f.wkt} (${esc(f.batter)}, ${f.over})`).join(', ');
     return `<div class="scorecard">
-      <div class="inn-title"><h2>${esc(bt.name)}</h2><span class="num">${I.runs}/${I.wkts} (${E.oversStr(I.balls)} ov)</span></div>
+      <div class="inn-title"><h2>${I.superOver ? `<span class="so-tag">${I.superOver > 1 ? I.superOver + '. ' : ''}Super Over</span>` : ''}${esc(bt.name)}</h2><span class="num">${I.runs}/${I.wkts} (${E.oversStr(I.balls)} ov)</span></div>
       <table class="card"><thead><tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="card-meta">
         Extras ${ex} (wd ${I.extras.wd}, nb ${I.extras.nb})${dnb.length ? `<br>Did not bat: ${esc(dnb.join(', '))}` : ''}${fow ? `<br>Fall of wickets: ${fow}` : ''}
@@ -605,6 +606,39 @@
     document.getElementById('btn-next').onclick = () => beginInnings(1 - I.bat);
   }
 
+  // Between the match and a Super Over, or between the two halves of one
+  function renderSuperOverBreak() {
+    const m = state.match, n = m.innings.length, last = m.innings[n - 1];
+    const firstHalf = m.pendingSuperOver;                   // the next innings starts a new Super Over
+    const soNo = firstHalf ? (last.superOver || 0) + 1 : last.superOver;
+    const nextBat = firstHalf ? team(last.bat) : team(1 - last.bat);
+    const order = nextBat.players.map((p, i) => i).sort((a, b) => nextBat.players[b].bat - nextBat.players[a].bat).slice(0, 3).map(i => nextBat.players[i].name);
+    const head = firstHalf
+      ? (soNo === 1 ? `Scores level on ${m.innings[0].runs}!` : `Super Over tied on ${last.runs}!`)
+      : `${esc(team(last.bat).name)} ${last.runs}/${last.wkts} in their Super Over`;
+    const sub = firstHalf
+      ? `${soNo === 1 ? 'A Super Over decides it' : 'Another Super Over decides it'}: one over each, 2 wickets and you're out. ${esc(nextBat.name)} bat first.`
+      : `${esc(nextBat.name)} need ${last.runs + 1} from 6 balls.`;
+    app.innerHTML = `<section>
+      <div class="result-hero">
+        <div class="trophy">⚡</div>
+        <h3>${soNo > 1 ? soNo + '. ' : ''}Super Over</h3>
+        <h1>${head}</h1>
+        <p class="muted" style="margin:0">${sub}</p>
+        <p class="muted" style="margin:0;font-size:14px">${esc(nextBat.short || nextBat.name)} send in: <b>${order.map(esc).join(', ')}</b></p>
+        <button class="primary" id="btn-so">${firstHalf ? 'Start the Super Over' : 'Start the chase'}</button>
+      </div>
+      <div class="summary-grid">${m.innings.map((_, k) => `<div class="panel">${scorecardHTML(k)}</div>`).reverse().slice(0, 2).join('')}</div>
+    </section>`;
+    document.getElementById('btn-so').onclick = () => {
+      E.startNextInnings(m);
+      state.screen = 'play';
+      state.bat = 'normal'; state.bowl = 'normal';
+      state.last = null; state.preview = true; state.autoKey = null;
+      advance();
+    };
+  }
+
   function awardCard(kicker, name, color, team, line, pid, big) {
     const nameHTML = pid && pmap()[pid] ? `<button class="plink" data-player="${pid}">${esc(name)}</button>` : esc(name);
     return `<div class="award ${big ? 'big' : ''}">
@@ -651,6 +685,7 @@
         <div class="panel">${scorecardHTML(0)}</div>
         <div class="panel">${scorecardHTML(1)}</div>
       </div>
+      ${m.innings.length > 2 ? `<div class="summary-grid" style="margin-top:16px">${m.innings.slice(2).map((_, k) => `<div class="panel">${scorecardHTML(k + 2)}</div>`).join('')}</div>` : ''}
     </section>`;
     bindPlayerLinks();
     if (state.ctx) {
@@ -684,6 +719,7 @@
         <li><b>Getting set</b>: the first 5 balls are riskier. After 25 balls a batter is harder to get out and scores faster.</li>
         <li><b>Phase</b>: the powerplay boosts fours. Death overs boost sixes and wickets.</li>
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
+        <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. Every player bowls one over, and a batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: only a run-out can get you.</li>
       </ul>
@@ -1340,6 +1376,10 @@
       <h2 style="margin:4px 0 2px">${esc(m.result)}</h2>
       <p class="muted" style="margin:0 0 10px;font-size:13px">Player of the match: <button class="plink" data-player="${m.motm}">${esc(pm[m.motm].name)}</button> (${esc(C.figuresLine(m.innings, m.motm))}) · ${esc(E.PITCHES[m.pitch].label)} pitch</p>
       ${inns}
+      ${(m.superOvers || []).length ? `<h3 style="margin:4px 0 8px">Super Over${m.superOvers.length > 2 ? 's' : ''}</h3>
+        <div class="so-list">${m.superOvers.map(s => `<div class="so-row"><span class="so-tag">${s.n > 1 ? s.n + '. ' : ''}Super Over</span>${chipTeam(kind, s.team)} <b class="num">${s.runs}/${s.wkts}</b>
+          <span class="muted">${s.batting.map(b => `${esc(pm[b.pid].name)} ${b.r}${b.out ? '' : '*'} (${b.b})`).join(', ')} · bowled by ${s.bowling.map(b => `${esc(pm[b.pid].name)} ${b.w}/${b.r}`).join(', ')}</span></div>`).join('')}</div>
+        <p class="muted note" style="margin-bottom:14px">Super Over runs and wickets don't count in player stats.</p>` : ''}
       <button class="primary" id="btn-close-modal">Close</button>`;
     modal.hidden = false;
     document.getElementById('btn-close-modal').onclick = () => { modal.hidden = true; };

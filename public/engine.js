@@ -142,14 +142,28 @@
     return rand() < 0.55 ? 'bowl' : 'bat';
   }
 
-  function startInnings(match, battingTeamIdx) {
+  // overs in this innings: 1 in a Super Over, otherwise the match length
+  function ovs(match, inn) { return inn && inn.superOver ? 1 : match.overs; }
+
+  function startInnings(match, battingTeamIdx, opts) {
+    const so = (opts && opts.superOver) || 0;
+    const players = match.teams[battingTeamIdx].players;
+    // Batting order: normal order, or the 3 best batters in a Super Over
+    const order = so
+      ? players.map((p, i) => i).sort((a, b) => players[b].bat - players[a].bat).slice(0, Math.min(3, players.length))
+      : players.map((p, i) => i);
+    const prev = match.innings[match.innings.length - 1];
+    let target = null;
+    if (!so && match.innings.length === 1) target = match.innings[0].runs + 1;
+    if (so && prev && prev.superOver === so) target = prev.runs + 1;
     const inn = {
+      superOver: so, order,
       bat: battingTeamIdx,
       bowl: 1 - battingTeamIdx,
       runs: 0, wkts: 0, balls: 0,
       extras: { wd: 0, nb: 0 },
       batters: match.teams[battingTeamIdx].players.map((_, i) => ({ idx: i, runs: 0, balls: 0, fours: 0, sixes: 0, out: null, batted: false })),
-      striker: 0, nonStriker: 1, nextIn: 2,
+      striker: order[0], nonStriker: order[1], nextIn: 2,
       bowlers: {},            // idx -> { balls, runs, wkts, dots }
       bowler: null, lastOverBowler: null,
       overLog: [],            // per over: array of short tokens
@@ -157,10 +171,10 @@
       fow: [],
       partnership: { runs: 0, balls: 0 },
       freeHit: false,
-      target: match.innings.length === 1 ? match.innings[0].runs + 1 : null,
+      target,
       done: false,
     };
-    inn.batters[0].batted = true; inn.batters[1].batted = true;
+    inn.batters[order[0]].batted = true; inn.batters[order[1]].batted = true;
     match.innings.push(inn);
     match.currentInnings = match.innings.length - 1;
     return inn;
@@ -177,7 +191,7 @@
     const regular = all.filter(b => b.type && b.idx !== inn.lastOverBowler && b.overs < match.maxOversPerBowler);
     // Only offer bowlers that still let the innings be finished without anyone
     // bowling two overs in a row or going over their limit
-    const oversLeft = match.overs - Math.floor(inn.balls / 6);
+    const oversLeft = ovs(match, inn) - Math.floor(inn.balls / 6);
     const caps = {};
     for (const b of all) if (b.type) caps[b.idx] = match.maxOversPerBowler - b.overs;
     const safe = regular.filter(b => canFinish({ ...caps, [b.idx]: caps[b.idx] - 1 }, b.idx, oversLeft - 1));
@@ -222,8 +236,8 @@
     const options = eligibleBowlers(match);
     const inn = cur(match);
     const overNo = Math.floor(inn.balls / 6);
-    const death = overNo >= match.overs * 0.8;
-    const pp = overNo < match.overs * 0.3;
+    const death = overNo >= ovs(match, inn) * 0.8;
+    const pp = overNo < ovs(match, inn) * 0.3;
     // Score each bowler: skill + pitch fit + phase fit; keep best bowler overs for death
     let best = null, bestScore = -Infinity;
     for (const b of options) {
@@ -232,7 +246,7 @@
       if (match.pitch === 'green' && b.type === 'pace') s += 8;
       if ((pp || death) && b.type === 'pace') s += 4;
       const remaining = match.maxOversPerBowler - b.overs;
-      const oversLeft = match.overs - overNo;
+      const oversLeft = ovs(match, inn) - overNo;
       // save top bowlers for the end unless we must use them
       if (!death && b.bowl >= 78 && remaining <= 1 && oversLeft > 3) s -= 12;
       if (s > bestScore) { bestScore = s; best = b; }
@@ -247,6 +261,7 @@
 
   // ---------- Probability model ----------
   function phaseOf(match, inn) {
+    if (inn.superOver) return 'death';
     const overNo = Math.floor(inn.balls / 6);
     if (overNo < Math.max(1, Math.round(match.overs * 0.3))) return 'powerplay';
     if (overNo >= Math.floor(match.overs * 0.8)) return 'death';
@@ -418,7 +433,7 @@
     }
 
     // Ball limit: the batter retires not out and the next one comes in
-    if (match.maxBallsPerBatter && !st.out && !st.returned && st.balls >= match.maxBallsPerBatter) {
+    if (match.maxBallsPerBatter && !inn.superOver && !st.out && !st.returned && st.balls >= match.maxBallsPerBatter) {
       const nb = nextBatter(match, inn, facedIdx);
       if (nb === null) {
         st.returned = true;   // nobody else left, so they bat on
@@ -448,8 +463,8 @@
   // Next batter in: a fresh one if any are left, otherwise a retired batter comes back
   // (earliest retired first) and bats on with no ball limit.
   function nextBatter(match, inn, exclude) {
-    const n = match.teams[inn.bat].players.length;
-    if (inn.nextIn < n) { const i = inn.nextIn++; inn.batters[i].batted = true; return i; }
+    const order = inn.order || match.teams[inn.bat].players.map((p, i) => i);
+    if (inn.nextIn < order.length) { const i = order[inn.nextIn++]; inn.batters[i].batted = true; return i; }
     const back = inn.batters
       .filter(b => b.retired && !b.out && !b.returned && b.idx !== exclude && b.idx !== inn.striker && b.idx !== inn.nonStriker)
       .sort((a, b) => a.retiredOrder - b.retiredOrder)[0];
@@ -457,39 +472,88 @@
     return null;
   }
 
-  function maxWkts(match, inn) { return match.teams[inn.bat].players.length - 1; }
+  function maxWkts(match, inn) {
+    const n = match.teams[inn.bat].players.length - 1;
+    return inn.superOver ? Math.min(2, n) : n;
+  }
 
   function swapStrike(inn) { const t = inn.striker; inn.striker = inn.nonStriker; inn.nonStriker = t; }
 
   function checkEnd(match) {
     const inn = cur(match);
     const allOut = inn.wkts >= maxWkts(match, inn) || !!inn.noBatters;
-    const oversDone = inn.balls >= match.overs * 6;
+    const oversDone = inn.balls >= ovs(match, inn) * 6;
     const chased = inn.target !== null && inn.runs >= inn.target;
     if (allOut || oversDone || chased) {
       inn.done = true; inn.bowler = null;
-      if (match.innings.length === 2) decideResult(match);
+      if (match.innings.length % 2 === 0) decideResult(match);
     }
   }
 
+  const MAX_SUPER_OVERS = 5;
+  const ordinal = n => n === 1 ? '' : `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'} `;
+
+  // Decides the last pair of innings (the match, or a Super Over). A tie never ends the
+  // match: it sets pendingSuperOver and the next Super Over decides it.
   function decideResult(match) {
-    const [a, b] = match.innings;
+    const n = match.innings.length;
+    const a = match.innings[n - 2], b = match.innings[n - 1];
     const tA = match.teams[a.bat], tB = match.teams[b.bat];
-    if (b.runs >= b.target) {
-      const w = maxWkts(match, b) - b.wkts;
-      match.result = { winner: b.bat, text: `${tB.name} won by ${w} wicket${w === 1 ? '' : 's'} (${match.overs * 6 - b.balls} ball${match.overs * 6 - b.balls === 1 ? '' : 's'} left)` };
-    } else if (b.runs === a.runs) {
-      match.result = { winner: null, text: 'Match tied!' };
-    } else {
-      const m = a.runs - b.runs;
-      match.result = { winner: a.bat, text: `${tA.name} won by ${m} run${m === 1 ? '' : 's'}` };
+    const so = b.superOver;
+    let winner = null;
+    if (b.runs >= b.target) winner = b.bat;
+    else if (b.runs < a.runs) winner = a.bat;
+
+    if (winner === null) {
+      if (so < MAX_SUPER_OVERS) { match.pendingSuperOver = true; return; }
+      // Extremely rare: still level after 5 Super Overs. Most boundaries in the whole match wins.
+      const bnd = t => match.innings.filter(I => I.bat === t).reduce((s, I) => s + I.batters.reduce((x, y) => x + y.fours + y.sixes, 0), 0);
+      winner = bnd(0) !== bnd(1) ? (bnd(0) > bnd(1) ? 0 : 1) : (Math.random() < 0.5 ? 0 : 1);
+      match.pendingSuperOver = false;
+      match.result = { winner, superOvers: so, text: `Still level after ${so} Super Overs. ${match.teams[winner].name} win on boundary count` };
+      return;
     }
+    match.pendingSuperOver = false;
+    if (!so) {
+      if (winner === b.bat) {
+        const w = maxWkts(match, b) - b.wkts, left = match.overs * 6 - b.balls;
+        match.result = { winner, text: `${tB.name} won by ${w} wicket${w === 1 ? '' : 's'} (${left} ball${left === 1 ? '' : 's'} left)` };
+      } else {
+        const m = a.runs - b.runs;
+        match.result = { winner, text: `${tA.name} won by ${m} run${m === 1 ? '' : 's'}` };
+      }
+      return;
+    }
+    const main = match.innings[0];
+    match.result = {
+      winner, superOvers: so,
+      text: `Scores level on ${main.runs}. ${match.teams[winner].name} won the ${ordinal(so)}Super Over (${tA.short || tA.name} ${a.runs}/${a.wkts} v ${tB.short || tB.name} ${b.runs}/${b.wkts})`,
+    };
+  }
+
+  // Start whatever innings comes next: the chase, a Super Over, or the second half of one.
+  // Returns false when the match is over.
+  function startNextInnings(match) {
+    if (match.result) return false;
+    const n = match.innings.length;
+    const last = match.innings[n - 1];
+    if (!last.done) return false;
+    if (n === 1) { startInnings(match, 1 - last.bat); return true; }
+    if (match.pendingSuperOver) {
+      // the side that batted second in the previous pair bats first
+      const so = (last.superOver || 0) + 1;
+      match.pendingSuperOver = false;
+      startInnings(match, last.bat, { superOver: so });
+      return true;
+    }
+    if (last.superOver && n % 2 === 1) { startInnings(match, 1 - last.bat, { superOver: last.superOver }); return true; }
+    return false;
   }
 
   // ---------- CPU decision making ----------
   function cpuBatMode(match) {
     const inn = cur(match);
-    const ballsLeft = match.overs * 6 - inn.balls;
+    const ballsLeft = ovs(match, inn) * 6 - inn.balls;
     const wktsLeft = maxWkts(match, inn) - inn.wkts;
     const phase = phaseOf(match, inn);
     const batter = match.teams[inn.bat].players[inn.striker];
@@ -531,7 +595,7 @@
 
   function cpuBowlPlan(match) {
     const inn = cur(match);
-    const ballsLeft = match.overs * 6 - inn.balls;
+    const ballsLeft = ovs(match, inn) * 6 - inn.balls;
     const phase = phaseOf(match, inn);
     if (inn.target !== null) {
       const need = inn.target - inn.runs;
@@ -553,7 +617,7 @@
     BAT_TABLES, BOWL_PLANS, PITCHES, PRESET_TEAMS,
     createMatch, doToss, cpuTossDecision, startInnings, cur,
     eligibleBowlers, needsBowler, setBowler, cpuChooseBowler,
-    ballProbabilities, bowlBall, cpuBatMode, cpuBowlPlan,
+    ballProbabilities, bowlBall, cpuBatMode, cpuBowlPlan, startNextInnings,
     oversStr, runRate, setRandom, mulberry32, phaseOf,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

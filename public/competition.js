@@ -311,7 +311,16 @@
   function summarize(db, comp, fixture, match, mode) {
     const kind = comp.kind;
     const sides = match.teams.map(t => t.id);
-    const innings = match.innings.map(I => {
+    // Super Overs are kept apart: like real cricket they don't count in career stats or NRR
+    const superOvers = match.innings.filter(I => I.superOver).map(I => {
+      const bt = match.teams[I.bat], bw = match.teams[I.bowl];
+      return {
+        n: I.superOver, team: bt.id, runs: I.runs, wkts: I.wkts, balls: I.balls,
+        batting: I.batters.filter(b => b.batted).map(b => ({ pid: bt.players[b.idx].pid, r: b.runs, b: b.balls, f4: b.fours, s6: b.sixes, out: !!b.out, how: b.out ? b.out.text : 'not out' })),
+        bowling: Object.entries(I.bowlers).map(([idx, s]) => ({ pid: bw.players[idx].pid, balls: s.balls, r: s.runs, w: s.wkts })),
+      };
+    });
+    const innings = match.innings.filter(I => !I.superOver).map(I => {
       const bt = match.teams[I.bat], bw = match.teams[I.bowl];
       return {
         team: bt.id, runs: I.runs, wkts: I.wkts, balls: I.balls, extras: I.extras.wd + I.extras.nb,
@@ -350,7 +359,7 @@
       summary: {
         id: fixture.id, comp: kind, compId: comp.id, compName: comp.name, season: comp.season, stage: fixture.stage, round: fixture.round, group: fixture.group || null,
         date: new Date().toISOString(), mode, pitch: match.pitch, overs: comp.overs,
-        teams: sides, toss: match.toss ? sides[match.toss.winner] : null, innings, winner, tie, result: text, motm,
+        teams: sides, toss: match.toss ? sides[match.toss.winner] : null, innings, superOvers, winner, tie, result: text, motm,
       },
       result: { winner, tie, superOverTie, text, runs, ballsNRR, score: Object.fromEntries(innings.map(I => [I.team, `${I.runs}/${I.wkts} (${E.oversStr(I.balls)})`])) },
     };
@@ -476,7 +485,7 @@
 
   // Same shape as a saved scorecard, built from a live engine match (used for friendlies)
   function inningsOf(match) {
-    return match.innings.map(I => {
+    return match.innings.filter(I => !I.superOver).map(I => {
       const bt = match.teams[I.bat], bw = match.teams[I.bowl];
       const key = (t, i) => t.players[i].pid || `${t.id}:${i}`;
       return {
@@ -595,15 +604,15 @@
     const toss = E.doToss(m, Math.random() < 0.5 ? 'heads' : 'tails');
     const choice = E.cpuTossDecision(m);
     E.startInnings(m, choice === 'bat' ? toss.winner : 1 - toss.winner);
-    for (let k = 0; k < 2; k++) {
-      if (k === 1) E.startInnings(m, 1 - m.innings[0].bat);
+    // both innings, plus Super Overs if the scores are level
+    do {
       const inn = E.cur(m);
       let guard = 0;
       while (!inn.done && guard++ < 1000) {
         if (E.needsBowler(m)) E.setBowler(m, E.cpuChooseBowler(m));
         E.bowlBall(m, E.cpuBatMode(m), E.cpuBowlPlan(m));
       }
-    }
+    } while (E.startNextInnings(m));
     return m;
   }
 
