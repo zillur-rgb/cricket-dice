@@ -1,0 +1,20 @@
+{
+  "name": "cricket-dice",
+  "version": "0.4.0",
+  "description": "A cricket board game with weighted, realistic ball outcomes",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "pull": "node pull.js",
+    "push": "node push.js",
+    "simulate": "node simulate.js 3000 20",
+    "test": "node test-competitions.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "mongodb": "6.10.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
