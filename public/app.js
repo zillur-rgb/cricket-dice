@@ -249,34 +249,46 @@
   }
 
   // ======================= PLAY SCREEN =======================
-  function renderPlay() {
+  // In Länderliga/Städtepokal matches both captains' plans are decided automatically
+  const autoPlans = () => !!state.ctx;
+  function decidePlans() {
+    if (!autoPlans()) return;
     const m = state.match, i = inn();
+    if (!i || i.done) return;
+    const key = `${m.currentInnings}-${i.log.length}`;
+    if (state.autoKey === key) return;
+    state.autoKey = key;
+    state.bat = E.cpuBatMode(m);
+    state.bowl = E.cpuBowlPlan(m);
+  }
+
+  function renderPlay() {
+    const m = state.match;
+    decidePlans();
     app.innerHTML = `<section class="match">
-      <div class="col">
-        ${scoreboardHTML()}
-        <div class="panel delivery" id="delivery">${deliveryInner(false)}</div>
-        ${controlsHTML()}
-        ${playersHTML()}
-        ${bowlingFiguresHTML()}
+      <div class="col col-main">
+        <div class="o-1">${scoreboardHTML()}</div>
+        <div class="o-2 panel delivery" id="delivery">${deliveryInner(false)}</div>
+        ${autoPlans() ? '' : `<div class="o-4">${plansHTML()}</div>`}
+        <div class="o-5">${playersHTML()}</div>
+        <div class="o-6">${bowlingFiguresHTML()}</div>
       </div>
-      <div class="col">
-        <div class="panel">
-          <div class="tabs">
-            <button class="tab ${state.tab === 'feed' ? 'active' : ''}" data-tab="feed">Commentary</button>
-            <button class="tab ${state.tab === 'card' ? 'active' : ''}" data-tab="card">Scorecard</button>
-          </div>
-          ${state.tab === 'feed' ? feedHTML() : m.innings.map((_, k) => scorecardHTML(k)).reverse().join('')}
+      <div class="col col-side">
+        <div class="o-3 sticky-actions">${actionsHTML()}</div>
+        <div class="o-7 panel">
+          <h2 class="card-head">Scorecard</h2>
+          ${m.innings.map((_, k) => scorecardHTML(k)).reverse().join('')}
         </div>
       </div>
     </section>`;
 
-    app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; renderPlay(); });
     app.querySelectorAll('[data-bat]').forEach(b => b.onclick = () => { state.bat = b.dataset.bat; state.preview = true; renderPlay(); });
     app.querySelectorAll('[data-bowl]').forEach(b => b.onclick = () => { state.bowl = b.dataset.bowl; state.preview = true; renderPlay(); });
     const bowl = document.getElementById('btn-bowl'); if (bowl) bowl.onclick = playBall;
     const ao = document.getElementById('btn-auto-over'); if (ao) ao.onclick = () => autoPlay(false);
     const ai = document.getElementById('btn-auto-inn'); if (ai) ai.onclick = () => autoPlay(true);
     const q = document.getElementById('quick'); if (q) q.onchange = () => { state.quick = q.checked; };
+    const i = inn();
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
   }
 
@@ -339,7 +351,7 @@
     } else if (i.bowler !== null) {
       probs = E.ballProbabilities(m, state.bat, state.bowl).legal;
       caption = `<span>Odds for this ball: <b>${PLAN_NAME[state.bowl]}</b> vs <b>${MODE_NAME[state.bat]}</b></span><span>${esc(team(i.bowl).players[i.bowler].name)} to ${esc(team(i.bat).players[i.striker].name)}</span>`;
-      flash = `<div class="flash"><div class="small">Set both captains' plans, then bowl.</div></div>`;
+      flash = `<div class="flash"><div class="small">${autoPlans() ? 'The captains have set their plans. Press Bowl.' : 'Set both captains\' plans, then bowl.'}</div></div>`;
     } else if (state.last) {
       probs = state.last.ev.probs; pos = state.last.pos; hit = state.last.ev.outcome;
       caption = `<span>End of over</span><span></span>`;
@@ -363,7 +375,7 @@
     return `<div class="flash pop"><div class="big ${cls}">${esc(big)}</div><div class="small">${esc(ev.text + extra)}</div></div>`;
   }
 
-  function controlsHTML() {
+  function plansHTML() {
     const m = state.match, i = inn();
     const canPreview = i.bowler !== null;
     const bowlT = team(i.bowl), batT = team(i.bat);
@@ -381,9 +393,19 @@
       <div class="intent">${row(BOWL_OPTS, 'bowl', state.bowl, k => E.ballProbabilities(m, state.bat, k))}</div>
       <div class="side-label">${teamDot(batT)}${esc(batT.name)} <span class="muted">· batting shot</span></div>
       <div class="intent">${row(BAT_OPTS, 'bat', state.bat, k => E.ballProbabilities(m, k, state.bowl))}</div>
-      <div class="action-row">
-        <button class="primary" id="btn-bowl">Bowl <small class="key-hint" style="opacity:.6;font-size:13px">␣</small></button>
-        <button class="secondary" id="btn-auto-over" title="Computer makes both captains' choices for the rest of this over">Auto over</button>
+    </div>`;
+  }
+
+  function actionsHTML() {
+    const i = inn();
+    const auto = autoPlans() && i.bowler !== null
+      ? `<div class="auto-plans"><span>${teamDot(team(i.bowl))}${esc(team(i.bowl).short)} <b>${PLAN_NAME[state.bowl]}</b></span><span>${teamDot(team(i.bat))}${esc(team(i.bat).short)} <b>${MODE_NAME[state.bat]}</b></span></div>`
+      : '';
+    return `<div class="panel controls actions">
+      ${auto}
+      <button class="primary bowl-btn" id="btn-bowl">Bowl <small class="key-hint">␣</small></button>
+      <div class="action-row two">
+        <button class="secondary" id="btn-auto-over" title="The computer plays the rest of this over">Auto over</button>
         <button class="secondary" id="btn-auto-inn" title="Simulate to the end of the innings">Sim innings</button>
       </div>
       <label class="toggle"><input type="checkbox" id="quick" ${state.quick ? 'checked' : ''}> Quick mode (skip the roll animation)</label>
@@ -1248,8 +1270,8 @@
     const k = e.key.toLowerCase();
     const bat = BAT_OPTS.find(o => o.k === k);
     const bowl = BOWL_OPTS.find(o => o.k.toLowerCase() === k);
-    if (bat) { state.bat = bat.key; state.preview = true; renderPlay(); }
-    if (bowl) { state.bowl = bowl.key; state.preview = true; renderPlay(); }
+    if (!autoPlans() && bat) { state.bat = bat.key; state.preview = true; renderPlay(); }
+    if (!autoPlans() && bowl) { state.bowl = bowl.key; state.preview = true; renderPlay(); }
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); playBall(); }
   });
 

@@ -423,3 +423,27 @@ table.standings tr.q { background: rgba(232,197,71,.05); }
 .danger-ghost { color: #f08c6e; border-color: rgba(229,83,61,.4); }
 .danger-ghost:hover:not(:disabled) { border-color: var(--red); }
 .confirm-word { display: block; width: 100%; margin-top: 6px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 10px 12px; font: inherit; letter-spacing: 1px; }
+
+/* ---------- Match layout: actions in the side column ---------- */
+.col-side { position: relative; }
+.sticky-actions { position: sticky; top: 12px; z-index: 2; }
+.actions { display: grid; gap: 10px; }
+.actions .bowl-btn { width: 100%; padding: 16px; font-size: 24px; }
+.actions .key-hint { opacity: .6; font-size: 13px; }
+.action-row.two { grid-template-columns: 1fr 1fr; }
+.auto-plans { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.auto-plans span { display: inline-flex; align-items: center; gap: 6px; }
+.auto-plans .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.auto-plans b { color: var(--text); font-weight: 600; }
+.card-head { font-size: 18px; margin-bottom: 8px; }
+@media (max-width: 860px) {
+  .match { display: flex; flex-direction: column; gap: 16px; }
+  .match .col { display: contents; }
+  .o-1 { order: 1; } .o-2 { order: 2; } .o-3 { order: 3; } .o-4 { order: 4; } .o-5 { order: 5; } .o-6 { order: 6; } .o-7 { order: 7; }
+  .sticky-actions { position: static; }
+  .match > .col > * { min-width: 0; max-width: 100%; width: 100%; }
+}
+@media (max-width: 480px) {
+  .action-row.two { grid-template-columns: 1fr 1fr; }
+  .action-row.two .primary { grid-column: auto; }
+}
