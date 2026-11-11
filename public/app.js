@@ -163,6 +163,35 @@
     });
   }
 
+  // ---------- Unfinished matches survive a reload (kept on this device) ----------
+  const liveKey = () => `cricket-dice-live:${state.store === 'cloud' && state.profile ? state.profile.id : 'local'}`;
+  function saveLive() {
+    try {
+      const m = state.match;
+      if (m && m.innings.length && !m.result) localStorage.setItem(liveKey(), JSON.stringify({ ctx: state.ctx, match: m, savedAt: Date.now() }));
+      else localStorage.removeItem(liveKey());
+    } catch (_) { /* storage unavailable: nothing to keep */ }
+  }
+  function restoreLive() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(liveKey()) || 'null'); } catch (_) { saved = null; }
+    if (!saved || !saved.match || saved.match.result) return;
+    if (saved.ctx) {
+      const comp = state.db.competitions.find(c => c.id === saved.ctx.compId);
+      const f = comp && comp.fixtures.find(x => x.id === saved.ctx.fixtureId);
+      if (!comp || !f || f.result) { try { localStorage.removeItem(liveKey()); } catch (_) { /* ignore */ } return; }
+      saved.ctx.recorded = false;
+    }
+    state.match = saved.match; state.ctx = saved.ctx || null;
+    state.bat = 'normal'; state.bowl = 'normal'; state.last = null; state.preview = true; state.autoKey = null;
+  }
+  function resumeLive() {
+    const m = state.match, i = inn();
+    state.screen = i.done && m.innings.length === 1 ? 'break' : 'play';
+    render();
+    if (state.screen === 'play' && E.needsBowler(m) && !i.done) openBowlerPicker();
+  }
+
   function beginInnings(battingIdx) {
     E.startInnings(state.match, battingIdx);
     state.screen = 'play';
@@ -174,6 +203,7 @@
   // ======================= GAME FLOW =======================
   function advance() {
     const m = state.match, i = inn();
+    saveLive();
     if (i.done) {
       state.screen = m.innings.length === 1 ? 'break' : 'result';
       if (state.screen === 'result' && state.ctx && !state.ctx.recorded) {
@@ -719,7 +749,8 @@
     if (!db || !db.players) { db = C.newDB(); state.db = db; await save(); }
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
-    if (C.migrate(db)) await save();
+    if (C.migrate(db) | C.refreshEmptyOldSeason(db)) await save();
+    restoreLive();
     render();
   }
 
@@ -735,8 +766,9 @@
     else db = await loadCloud(j);
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
-    if (C.migrate(db)) await save();
+    if (C.migrate(db) | C.refreshEmptyOldSeason(db)) await save();
     state.match = null; state.ctx = null;
+    restoreLive();
     state.screen = 'home';
     updateProfileButton();
     render();
@@ -1012,9 +1044,9 @@
     if (k === 'league' || k === 'cup') openComp(k);
     else if (k === 'friendly') {
       const live = state.match && !state.ctx && state.match.innings.length && !state.match.result;
-      state.screen = live ? 'play' : 'setup';
+      if (live) { resumeLive(); return; }
+      state.screen = 'setup';
       render();
-      if (live && E.needsBowler(state.match) && !inn().done) openBowlerPicker();
     }
     else { state.screen = k; render(); }
   });
@@ -1083,7 +1115,7 @@
     </section>`;
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
-    const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = () => { state.screen = 'play'; render(); if (E.needsBowler(state.match) && !inn().done) openBowlerPicker(); };
+    const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
     bindPlayerLinks();
   }
 
@@ -1153,7 +1185,7 @@
           : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
         <p class="muted note">Points add up each player's match performances: runs, strike rate, wickets and economy.</p></div>
         <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>`;
-    } else body = squadsHTML(kind);
+    } else body = squadsHTML(kind, comp);
 
     app.innerHTML = `<section class="comp">
       <div class="comp-head">
@@ -1188,7 +1220,8 @@
   }
 
   function playFixture(comp, fid) {
-    if (liveMatchInProgress() && !(state.ctx && state.ctx.fixtureId === fid)) {
+    if (liveMatchInProgress()) {
+      if (state.ctx && state.ctx.fixtureId === fid) { resumeLive(); return; }
       showToast('Finish or resume the match in progress first (Home → Resume).', true); return;
     }
     const f = comp.fixtures.find(x => x.id === fid);
@@ -1275,14 +1308,14 @@
       </div>`).join('')}</div>`).join('');
   }
 
-  function squadsHTML(kind) {
+  function squadsHTML(kind, comp) {
     const pm = pmap();
-    const teams = state.db.teams[kind];
+    const teams = comp ? C.squadsFor(state.db, comp) : state.db.teams[kind];
     const reserves = kind === 'league' ? state.db.players.filter(p => !p.state) : [];
     const card = (t) => `<div class="squad"><h3>${chipTeam(kind, t.id)}</h3><ul>${t.players.map(id => pm[id]).sort((a, b) => b.bat - a.bat).map(p => `<li><button class="plink" data-player="${p.id}">${esc(p.name)}</button><span class="rt">BAT ${p.bat} · BOWL ${p.bowl} <span class="type-pill ${p.type}">${p.type}</span></span></li>`).join('')}</ul></div>`;
     return `<p class="muted note" style="margin-top:0">${kind === 'league'
       ? 'Each state fields 7 players: its own cities\' players first, with small states topped up from the big ones.'
-      : `Each city fields its ${C.COMPS.cup.squad} players.`} Every player bowls.</p>
+      : `Each city fields its ${teams[0].players.length} players.`} Every player bowls.</p>
       <div class="squads">${teams.map(card).join('')}</div>
       ${reserves.length ? `<p class="muted note">Not in a state squad this year (they still play in the Städtepokal): ${reserves.map(p => esc(p.name)).join(', ')}</p>` : ''}`;
   }

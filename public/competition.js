@@ -190,6 +190,16 @@
     return true;
   }
 
+  // A Städtepokal season started in the old format with no finished matches is simply
+  // started again in the new format (same season number, nothing is lost).
+  function refreshEmptyOldSeason(db) {
+    const comp = db.competitions.find(c => c.kind === 'cup' && c.status !== 'complete');
+    if (!comp || comp.format === 'v2' || comp.fixtures.some(f => f.result)) return false;
+    db.competitions = db.competitions.filter(c => c !== comp);
+    startCompetition(db, 'cup');
+    return true;
+  }
+
   // ---------------- Lookups ----------------
   const playerMap = db => { const m = {}; for (const p of db.players) m[p.id] = p; return m; };
   function teamOf(db, kind, id) {
@@ -616,7 +626,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, squadsFor, RETIRED_CITIES,
+    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine,
   };
