@@ -465,6 +465,25 @@
     const phase = phaseOf(match, inn);
     const batter = match.teams[inn.bat].players[inn.striker];
     if (inn.freeHit) return 'attack';
+    // Short formats (10 overs or fewer): there's no time to build, so captains attack early.
+    // How hard depends on the share of wickets left, since small squads have few to lose.
+    if (match.overs <= 10) {
+      // wickets in hand per over remaining: high = can afford risk
+      const perOver = wktsLeft / Math.max(ballsLeft / 6, 1);
+      const lastOver = ballsLeft <= 6;
+      const attackChance = wktsLeft <= 2 && ballsLeft > 18 ? 0 : perOver >= 0.9 ? 0.8 : perOver >= 0.6 ? 0.45 : perOver >= 0.4 ? 0.12 : 0.04;
+      if (inn.target !== null) {
+        const need = inn.target - inn.runs;
+        const rrr = (need / Math.max(ballsLeft, 1)) * 6;
+        if (rrr > 10 || (lastOver && rrr > 6)) return 'attack';
+        if (rrr > 7.5) return perOver >= 0.5 || ballsLeft <= 12 ? 'attack' : 'normal';
+        if (rrr < 5 && wktsLeft <= 1) return 'defend';
+        return rand() < attackChance * 0.5 ? 'attack' : 'normal';
+      }
+      if (lastOver && wktsLeft >= 1) return 'attack';
+      if (wktsLeft <= 1 && ballsLeft > 12) return 'defend';
+      return rand() < attackChance ? 'attack' : 'normal';
+    }
     if (inn.target !== null) {
       const need = inn.target - inn.runs;
       const rrr = (need / Math.max(ballsLeft, 1)) * 6;
