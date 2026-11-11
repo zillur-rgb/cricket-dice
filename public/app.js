@@ -55,6 +55,8 @@
     document.querySelectorAll('[data-nav]').forEach(b => b.classList.toggle('active', b.dataset.nav === navKey()));
     if (state.screen !== state._lastScreen) window.scrollTo(0, 0);
     state._lastScreen = state.screen;
+    if (state.screen === 'profiles') return showProfiles();
+    document.querySelector('.mainnav').hidden = false;
     if (state.screen === 'home') renderHome();
     else if (state.screen === 'comp') renderComp(state.compKind);
     else if (state.screen === 'players') renderPlayers();
@@ -667,15 +669,32 @@
 
   // ======================= STORAGE =======================
   const LS_KEY = 'cricket-dice-db';
-  const PASS_KEY = 'cricket-dice-passcode';
   state.savedIds = new Set();   // match ids already in the online database
   state.compHash = {};          // last saved version of each competition (online mode)
+
+  // ---------- Profiles (online mode) ----------
+  const PROF_KEY = 'cricket-dice-profile';
+  state.profile = null;      // { id, name, pin }
+  state.profiles = [];       // [{ id, name }]
+  state.legacy = false;      // history saved before profiles existed
+
+  const authHeaders = () => state.profile ? { 'x-profile': state.profile.id, 'x-pin': state.profile.pin } : {};
+  function rememberProfile(p) { try { localStorage.setItem(PROF_KEY, JSON.stringify(p)); } catch (_) { /* memory only */ } }
+  function rememberedProfile() { try { return JSON.parse(localStorage.getItem(PROF_KEY) || 'null'); } catch (_) { return null; } }
+  function forgetProfile() { try { localStorage.removeItem(PROF_KEY); } catch (_) { /* ignore */ } }
+
+  async function api(path, opts) {
+    const res = await fetch(path, { cache: 'no-store', ...(opts || {}), headers: { 'Content-Type': 'application/json', ...authHeaders(), ...((opts && opts.headers) || {}) } });
+    let j = null;
+    try { j = await res.json(); } catch (_) { j = null; }
+    return { res, j };
+  }
 
   async function boot() {
     renderLoading();
     let db = null;
     try {
-      const res = await fetch('api/db?part=core', { cache: 'no-store' });
+      const res = await fetch('api/db?part=profiles', { cache: 'no-store' });
       const ct = res.headers.get('content-type') || '';
       if (!ct.includes('json')) throw new Error('no server');
       const j = await res.json();
@@ -683,11 +702,15 @@
       if (!res.ok) throw new Error('no server');
       if (j && j.storage === 'mongo') {
         state.store = 'cloud';
-        if (!j.empty) db = await loadCloud(j);
-      } else {
-        state.store = 'server';
-        db = j;
+        state.profiles = j.profiles || [];
+        state.legacy = !!j.legacy;
+        const saved = rememberedProfile();
+        if (saved && state.profiles.some(p => p.id === saved.id)) { state.profile = saved; if (await openProfile()) return; }
+        showProfiles();
+        return;
       }
+      state.store = 'server';
+      db = j;
     } catch (e) {
       state.store = 'local';
       try { db = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) { db = null; }
@@ -698,12 +721,137 @@
     render();
   }
 
+  // Load the logged-in profile's history; returns false if the PIN no longer works
+  async function openProfile() {
+    renderLoading();
+    const { res, j } = await api('api/db?part=core');
+    if (res.status === 401) { forgetProfile(); state.profile = null; return false; }
+    if (!res.ok || !j) { renderLoadError((j && j.error) || 'The database did not answer.'); return true; }
+    state.savedIds = new Set(); state.compHash = {};
+    let db;
+    if (j.empty) { db = C.newDB(); state.db = db; await save(); }
+    else db = await loadCloud(j);
+    state.db = db;
+    if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
+    state.match = null; state.ctx = null;
+    state.screen = 'home';
+    updateProfileButton();
+    render();
+    return true;
+  }
+
+  function updateProfileButton() {
+    const b = document.getElementById('btn-profile');
+    if (!b) return;
+    b.hidden = !(state.store === 'cloud' && state.profile);
+    if (state.profile) b.innerHTML = `<span class="avatar sm" style="background:${profileColor(state.profile.id)}">${esc(state.profile.name[0].toUpperCase())}</span>${esc(state.profile.name)} · Switch`;
+  }
+
+  function profileColor(id) {
+    let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    return `hsl(${h} 55% 50%)`;
+  }
+
+  function switchProfile() {
+    const go = () => { forgetProfile(); state.profile = null; state.db = null; state.match = null; state.ctx = null; updateProfileButton(); refreshProfiles(); };
+    if (liveMatchInProgress()) {
+      confirmBox({ title: 'Leave this match?', text: 'The match in progress has not finished, so it will not be saved.', ok: 'Switch profile', onOk: go });
+    } else go();
+  }
+
+  async function refreshProfiles() {
+    renderLoading();
+    const { j } = await api('api/db?part=profiles');
+    state.profiles = (j && j.profiles) || [];
+    state.legacy = !!(j && j.legacy);
+    showProfiles();
+  }
+
+  function showProfiles(selectedId, msg) {
+    state.screen = 'profiles';
+    document.querySelector('.mainnav').hidden = true;
+    const sel = selectedId || (state.profiles.length ? null : 'new');
+    const cards = state.profiles.map(p => `<button class="profile-card ${sel === p.id ? 'selected' : ''}" data-prof="${p.id}">
+        <span class="avatar" style="background:${profileColor(p.id)}">${esc(p.name[0].toUpperCase())}</span><span class="pname-big">${esc(p.name)}</span></button>`).join('');
+    let form = '';
+    if (sel === 'new') {
+      form = `<form id="new-prof" class="prof-form">
+        <h2>New profile</h2>
+        <label for="np-name">Name</label><input id="np-name" maxlength="24" autocomplete="off" placeholder="e.g. Zillur" required>
+        <div class="pin-row">
+          <div><label for="np-pin">PIN (4–8 digits)</label><input id="np-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="new-password" required></div>
+          <div><label for="np-pin2">Repeat PIN</label><input id="np-pin2" type="password" inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="new-password" required></div>
+        </div>
+        ${state.legacy ? `<label class="check"><input type="checkbox" id="np-claim"> Move the history already saved online into this profile</label>
+        <div id="np-claim-box" hidden><label for="np-old">Old passcode (SAVE_PASSCODE in Vercel)</label><input id="np-old" type="password" autocomplete="off"></div>` : ''}
+        <p class="form-msg" id="prof-msg">${esc(msg || '')}</p>
+        <div class="btn-row" style="justify-content:flex-start"><button class="primary" type="submit">Create profile</button>${state.profiles.length ? '<button class="secondary" type="button" id="np-cancel">Cancel</button>' : ''}</div>
+        <p class="muted note">Each profile has its own seasons, history and player stats. Anyone with the website link can create a profile; only the PIN opens it.</p>
+      </form>`;
+    } else if (sel) {
+      const p = state.profiles.find(x => x.id === sel);
+      form = `<form id="login-prof" class="prof-form">
+        <h2>Hi ${esc(p.name)}</h2>
+        <label for="lp-pin">Your PIN</label>
+        <input id="lp-pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+        <label class="check"><input type="checkbox" id="lp-remember" checked> Keep me logged in on this device</label>
+        <p class="form-msg" id="prof-msg">${esc(msg || '')}</p>
+        <div class="btn-row" style="justify-content:flex-start"><button class="primary" type="submit">Open</button></div>
+      </form>`;
+    }
+    app.innerHTML = `<section class="profiles">
+      <div class="setup-hero"><h1>Who's playing?</h1><p>Each profile keeps its own Länderliga and Städtepokal seasons, history and player stats.</p></div>
+      <div class="profile-grid">${cards}<button class="profile-card add ${sel === 'new' ? 'selected' : ''}" data-prof="new"><span class="avatar add">+</span><span class="pname-big">New profile</span></button></div>
+      ${form ? `<div class="panel prof-panel">${form}</div>` : ''}
+    </section>`;
+    app.querySelectorAll('[data-prof]').forEach(b => b.onclick = () => showProfiles(b.dataset.prof));
+    const setMsg = t => { const m = document.getElementById('prof-msg'); if (m) m.textContent = t; };
+
+    const lf = document.getElementById('login-prof');
+    if (lf) {
+      const pinIn = document.getElementById('lp-pin'); pinIn.focus();
+      lf.onsubmit = async e => {
+        e.preventDefault();
+        setMsg('Checking…');
+        const pin = pinIn.value.trim();
+        const { res, j } = await api('api/db?action=login', { method: 'POST', body: JSON.stringify({ profile: sel, pin }) });
+        if (!res.ok) { setMsg((j && j.error) || 'Could not log in.'); pinIn.value = ''; pinIn.focus(); return; }
+        state.profile = { id: j.profile.id, name: j.profile.name, pin };
+        if (document.getElementById('lp-remember').checked) rememberProfile(state.profile); else forgetProfile();
+        await openProfile();
+      };
+    }
+
+    const nf = document.getElementById('new-prof');
+    if (nf) {
+      document.getElementById('np-name').focus();
+      const claim = document.getElementById('np-claim');
+      if (claim) claim.onchange = () => { document.getElementById('np-claim-box').hidden = !claim.checked; };
+      const cancel = document.getElementById('np-cancel'); if (cancel) cancel.onclick = () => showProfiles();
+      nf.onsubmit = async e => {
+        e.preventDefault();
+        const name = document.getElementById('np-name').value.trim();
+        const pin = document.getElementById('np-pin').value.trim();
+        if (!/^\d{4,8}$/.test(pin)) { setMsg('The PIN must be 4 to 8 digits.'); return; }
+        if (pin !== document.getElementById('np-pin2').value.trim()) { setMsg('The two PINs are different.'); return; }
+        const body = { name, pin };
+        if (claim && claim.checked) { body.claimLegacy = true; body.legacyPasscode = document.getElementById('np-old').value; }
+        setMsg('Creating…');
+        const { res, j } = await api('api/db?action=create-profile', { method: 'POST', body: JSON.stringify(body) });
+        if (!res.ok) { setMsg((j && j.error) || 'Could not create the profile.'); return; }
+        state.profile = { id: j.profile.id, name: j.profile.name, pin };
+        rememberProfile(state.profile);
+        if (j.moved) showToast(`Moved ${j.moved} saved matches into ${j.profile.name}`);
+        await openProfile();
+      };
+    }
+  }
+
   async function loadCloud(core) {
     const matches = [];
     while (matches.length < core.matchCount) {
-      const r = await fetch(`api/db?part=matches&skip=${matches.length}&limit=300`, { cache: 'no-store' });
-      const j = await r.json();
-      if (!r.ok || !j.matches || !j.matches.length) break;
+      const { res, j } = await api(`api/db?part=matches&skip=${matches.length}&limit=300`);
+      if (!res.ok || !j || !j.matches || !j.matches.length) break;
       matches.push(...j.matches);
     }
     const db = { ...core.meta, competitions: core.competitions, matches, stats: core.stats };
@@ -715,33 +863,18 @@
   function renderLoadError(msg) {
     app.innerHTML = `<div class="panel" style="margin-top:20px"><h2>Can't reach the database</h2>
       <p class="muted">${esc(msg)}</p>
-      <p class="muted">Check MONGODB_URI and SAVE_PASSCODE in your Vercel project settings, and that Atlas Network Access allows 0.0.0.0/0. Then redeploy and reload this page.</p></div>`;
+      <p class="muted">Check MONGODB_URI in your Vercel project settings, and that Atlas Network Access allows 0.0.0.0/0. Then redeploy and reload this page.</p></div>`;
   }
 
-  function getPass() { try { return localStorage.getItem(PASS_KEY) || ''; } catch (_) { return state._pass || ''; } }
-  function setPass(v) { state._pass = v; try { localStorage.setItem(PASS_KEY, v); } catch (_) { /* memory only */ } }
-
-  function askPass(msg) {
-    modalCard.innerHTML = `<h2>Passcode to save</h2>
-      <p class="muted" style="font-size:14px">${esc(msg || 'Results are saved to your online database. Enter the passcode you set in Vercel (SAVE_PASSCODE). This device will remember it.')}</p>
-      <form id="pass-form" class="pass-form"><input id="pass-in" type="password" autocomplete="current-password" placeholder="Passcode" required>
-      <button class="primary" type="submit">Save</button><button class="secondary" type="button" id="pass-later">Not now</button></form>`;
-    modal.hidden = false;
-    const inp = document.getElementById('pass-in'); inp.focus();
-    document.getElementById('pass-later').onclick = () => { modal.hidden = true; showToast('Not saved. Tap "enter passcode" on the home page to save later.', true); };
-    document.getElementById('pass-form').onsubmit = async e => {
-      e.preventDefault();
-      setPass(inp.value.trim());
-      modal.hidden = true;
-      await save();
-      render();
-    };
+  function sessionExpired() {
+    forgetProfile();
+    state.saveMsg = 'Not saved: this profile\'s PIN was not accepted. Log in again.';
+    showToast(state.saveMsg, true);
   }
 
   async function saveCloud() {
     const db = state.db;
-    const pass = getPass();
-    if (!pass) { state.saveMsg = 'Not saved yet: enter your passcode.'; askPass(); return false; }
+    if (!state.profile) { state.saveMsg = 'Not saved: no profile is open.'; return false; }
     const competitions = [];
     db.competitions.forEach((comp, i) => {
       const s = JSON.stringify(comp);
@@ -751,18 +884,14 @@
     db.matches.forEach((m, i) => { if (!state.savedIds.has(m.id)) matches.push({ ...m, seq: i }); });
     const meta = { app: db.app, version: db.version, createdAt: db.createdAt, players: db.players, teams: db.teams };
     try {
-      const res = await fetch('api/db', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-passcode': pass },
-        body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats }),
-      });
-      if (res.status === 401) { setPass(''); state.saveMsg = 'Not saved: wrong passcode.'; askPass('That passcode was not accepted. Try again.'); return false; }
+      const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats }) });
+      if (res.status === 401) { sessionExpired(); return false; }
       if (res.status === 409) { state.saveMsg = 'Not saved: newer results were saved from another device. Reload the page to get them.'; showToast(state.saveMsg, true); return false; }
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || 'save failed');
+      if (!res.ok) throw new Error((j && j.error) || 'save failed');
       db.rev = j.rev;
       for (const m of matches) state.savedIds.add(m.id);
       for (const comp of db.competitions) state.compHash[comp.id] = JSON.stringify(comp);
-      state.saveMsg = 'Saved to your online database.';
+      state.saveMsg = `Saved to ${state.profile.name}'s history.`;
       showToast('Saved online');
       return true;
     } catch (e) {
@@ -795,16 +924,13 @@
     const old = state.db;
     const fresh = C.newDB();
     if (state.store === 'cloud') {
-      const pass = getPass();
-      if (!pass) { askPass('Enter your passcode first, then press Reset again.'); return; }
       try {
-        const res = await fetch('api/db', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-passcode': pass },
+        const { res, j } = await api('api/db', {
+          method: 'POST',
           body: JSON.stringify({ mode: 'replace', meta: { app: fresh.app, version: fresh.version, createdAt: fresh.createdAt, players: fresh.players, teams: fresh.teams }, competitions: [], matches: [], stats: C.computeStats(fresh) }),
         });
-        const j = await res.json();
-        if (res.status === 401) { setPass(''); askPass('That passcode was not accepted. Try again, then press Reset again.'); return; }
-        if (!res.ok) throw new Error(j.error || 'reset failed');
+        if (res.status === 401) { sessionExpired(); return; }
+        if (!res.ok) throw new Error((j && j.error) || 'reset failed');
         fresh.rev = j.rev;
       } catch (e) { showToast('Reset failed: ' + e.message, true); return; }
       state.savedIds = new Set(); state.compHash = {};
@@ -860,13 +986,14 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = 'toast'; }, bad ? 6000 : 1800);
   }
 
-  app.addEventListener('click', e => { if (e.target && e.target.id === 'btn-pass') askPass(); });
+  document.getElementById('btn-profile').onclick = switchProfile;
 
-  function renderLoading() { app.innerHTML = '<div class="panel" style="margin-top:20px">Loading your history…</div>'; }
+  function renderLoading() {
+    if (state.store === 'cloud' && !state.db) document.querySelector('.mainnav').hidden = true; app.innerHTML = '<div class="panel" style="margin-top:20px">Loading your history…</div>'; }
 
   function storeBanner() {
     if (state.store === 'server') return `<div class="store ok">● Saving to <b>data/history.json</b> on your computer</div>`;
-    if (state.store === 'cloud') return `<div class="store ok">● Saving online to your <b>MongoDB</b> database${getPass() ? '' : ' · <button class="plink" id="btn-pass">enter passcode</button>'}</div>`;
+    if (state.store === 'cloud') return `<div class="store ok">● Saving online · profile <b>${esc(state.profile ? state.profile.name : '')}</b></div>`;
     return `<div class="store warn">● Not connected to your computer. Results are kept in this browser only. To save to your Mac, run <code>npm start</code> and open the address it prints.</div>`;
   }
 
@@ -1304,7 +1431,7 @@
     const dl = document.getElementById('btn-download'); if (dl) dl.onclick = downloadHistory;
     document.getElementById('btn-reset').onclick = () => confirmBox({
       title: 'Reset all history?',
-      text: `This permanently deletes every season, scorecard and player stat (${db.matches.length} matches). The 120 players and their teams stay. It can't be undone.`,
+      text: `This permanently deletes every season, scorecard and player stat (${db.matches.length} matches)${state.store === 'cloud' ? ` in ${state.profile.name}'s profile. Other profiles are not touched` : ''}. The 120 players and their teams stay. It can't be undone.`,
       ok: 'Delete everything', danger: true, typeWord: 'RESET',
       onOk: resetHistory,
     });

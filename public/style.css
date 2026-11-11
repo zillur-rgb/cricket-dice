@@ -465,3 +465,33 @@ table.standings tr.q { background: rgba(232,197,71,.05); }
 .race-sub { font-size: 12px; color: var(--muted); }
 .hist-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
 .hist-champ.pos { background: rgba(79,163,224,.08); border-color: rgba(79,163,224,.3); }
+
+/* ---------- Profiles ---------- */
+.top-actions { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.profile-btn { display: inline-flex; align-items: center; gap: 8px; color: var(--text); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.profile-btn[hidden] { display: none; }
+.avatar { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; color: white; font-family: var(--display); font-weight: 700; font-size: 22px; flex: none; }
+.avatar.sm { width: 22px; height: 22px; font-size: 12px; }
+.avatar.add { background: transparent; border: 2px dashed var(--line); color: var(--muted); }
+.profiles { display: grid; gap: 16px; }
+.profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.profile-card { display: grid; justify-items: center; gap: 10px; padding: 18px 10px; background: var(--panel); border: 2px solid var(--line); border-radius: var(--radius); }
+.profile-card:hover { border-color: var(--muted); }
+.profile-card.selected { border-color: var(--accent); }
+.pname-big { font-family: var(--display); font-weight: 700; font-size: 18px; text-transform: uppercase; text-align: center; overflow-wrap: anywhere; }
+.prof-panel { max-width: 520px; }
+.prof-form { display: grid; gap: 8px; }
+.prof-form label { font-size: 13px; color: var(--muted); }
+.prof-form input[type=password], .prof-form input:not([type]) { background: var(--bg-2); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 11px 12px; font: inherit; width: 100%; min-width: 0; }
+.prof-form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pin-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pin-row > div { display: grid; gap: 6px; min-width: 0; }
+.check { display: flex; gap: 8px; align-items: center; color: var(--text) !important; font-size: 14px !important; }
+.check input { accent-color: var(--accent); }
+.form-msg { min-height: 18px; margin: 0; font-size: 14px; color: #f0b46e; }
+@media (max-width: 480px) {
+  .profile-btn { max-width: 150px; font-size: 13px; padding: 6px 10px; }
+  .profile-btn:not([hidden]) + #btn-rules { display: none; }
+  .pin-row { grid-template-columns: 1fr; }
+}
+.mainnav[hidden] { display: none; }
