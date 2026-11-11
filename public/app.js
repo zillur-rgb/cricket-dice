@@ -720,6 +720,55 @@
     }
   }
 
+  function confirmBox({ title, text, ok, danger, typeWord, onOk }) {
+    modalCard.innerHTML = `<h2>${esc(title)}</h2>
+      <p class="muted" style="font-size:14px;line-height:1.5">${esc(text)}</p>
+      ${typeWord ? `<label class="muted" for="confirm-word" style="font-size:13px">Type <b>${typeWord}</b> to confirm</label><input id="confirm-word" class="confirm-word" autocomplete="off">` : ''}
+      <div class="btn-row" style="justify-content:flex-start;margin-top:14px">
+        <button class="primary ${danger ? 'danger' : ''}" id="cb-ok" ${typeWord ? 'disabled' : ''}>${esc(ok)}</button>
+        <button class="secondary" id="cb-cancel">Cancel</button>
+      </div>`;
+    modal.hidden = false;
+    const okBtn = document.getElementById('cb-ok');
+    if (typeWord) {
+      const w = document.getElementById('confirm-word');
+      w.focus();
+      w.oninput = () => { okBtn.disabled = w.value.trim().toUpperCase() !== typeWord; };
+    }
+    document.getElementById('cb-cancel').onclick = () => { modal.hidden = true; };
+    okBtn.onclick = () => { modal.hidden = true; onOk(); };
+  }
+
+  async function resetHistory() {
+    const old = state.db;
+    const fresh = C.newDB();
+    if (state.store === 'cloud') {
+      const pass = getPass();
+      if (!pass) { askPass('Enter your passcode first, then press Reset again.'); return; }
+      try {
+        const res = await fetch('api/db', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-passcode': pass },
+          body: JSON.stringify({ mode: 'replace', meta: { app: fresh.app, version: fresh.version, createdAt: fresh.createdAt, players: fresh.players, teams: fresh.teams }, competitions: [], matches: [], stats: C.computeStats(fresh) }),
+        });
+        const j = await res.json();
+        if (res.status === 401) { setPass(''); askPass('That passcode was not accepted. Try again, then press Reset again.'); return; }
+        if (!res.ok) throw new Error(j.error || 'reset failed');
+        fresh.rev = j.rev;
+      } catch (e) { showToast('Reset failed: ' + e.message, true); return; }
+      state.savedIds = new Set(); state.compHash = {};
+      state.db = fresh;
+    } else {
+      fresh.rev = old.rev || 0;   // local server checks the revision
+      state.db = fresh;
+      if (!(await save())) { state.db = old; return; }
+    }
+    state.db.stats = C.computeStats(state.db);
+    state.match = null; state.ctx = null;
+    state.screen = 'home';
+    render();
+    showToast('History reset. All players start from zero.');
+  }
+
   function downloadHistory() {
     const blob = new Blob([JSON.stringify(state.db, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -932,7 +981,13 @@
     app.querySelectorAll('[data-sim]').forEach(b => b.onclick = () => simFixtures(comp, [b.dataset.sim]));
     app.querySelectorAll('[data-simn]').forEach(b => b.onclick = () => {
       const pend = C.pendingFixtures(comp).filter(f => f.stage === comp.stage);
-      simFixtures(comp, (b.dataset.simn === 'stage' ? pend : pend.slice(0, 8)).map(f => f.id));
+      const ids = (b.dataset.simn === 'stage' ? pend : pend.slice(0, 8)).map(f => f.id);
+      confirmBox({
+        title: `Simulate ${ids.length} matches?`,
+        text: `The computer will play ${ids.length} ${comp.name} matches and save the results. This can't be undone.`,
+        ok: `Simulate ${ids.length}`,
+        onOk: () => simFixtures(comp, ids),
+      });
     });
     app.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
     const ns = document.getElementById('btn-new-season');
@@ -1161,7 +1216,10 @@
     };
     app.innerHTML = `<section>
       <div class="setup-hero"><h1>History</h1><p>Every season of both competitions, with finals, semifinals and leading players.${state.store === 'cloud' ? ' Stored in your MongoDB database.' : state.store === 'server' ? ' Stored in data/history.json.' : ''}</p>
-        ${state.store !== 'local' ? '<button class="secondary" id="btn-download" style="margin-top:12px">Download history.json</button>' : ''}</div>
+        <div class="btn-row" style="justify-content:flex-start;margin-top:12px">
+          ${state.store !== 'local' ? '<button class="secondary" id="btn-download">Download history.json</button>' : ''}
+          <button class="secondary danger-ghost" id="btn-reset">Reset all history</button>
+        </div></div>
       ${db.matches.length ? `<div class="panel"><div class="records">
         ${rec('Most career runs', mostR.s.runs, `${mostR.s.mat} matches`, mostR.pid)}
         ${rec('Most career wickets', mostW.s.wkts, `${mostW.s.mat} matches`, mostW.pid)}
@@ -1174,6 +1232,12 @@
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
     const dl = document.getElementById('btn-download'); if (dl) dl.onclick = downloadHistory;
+    document.getElementById('btn-reset').onclick = () => confirmBox({
+      title: 'Reset all history?',
+      text: `This permanently deletes every season, scorecard and player stat (${db.matches.length} matches). The 120 players and their teams stay. It can't be undone.`,
+      ok: 'Delete everything', danger: true, typeWord: 'RESET',
+      onOk: resetHistory,
+    });
     bindPlayerLinks();
   }
 
