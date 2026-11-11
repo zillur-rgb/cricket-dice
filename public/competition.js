@@ -74,9 +74,11 @@
 
   const COMPS = {
     league: { name: 'Länderliga', overs: 5, maxOversPerBowler: 1, squad: 7, kind: 'league' },
-    cup: { name: 'Städtepokal', overs: 10, maxOversPerBowler: 2, squad: 5, kind: 'cup' },
+    cup: { name: 'Städtepokal', overs: 6, maxOversPerBowler: 1, maxBallsPerBatter: 12, squad: 6, kind: 'cup', format: 'v2' },
   };
-  const STAGE_LABEL = { league: 'League', group: 'Group stage', R16: 'Round of 16', QF: 'Quarterfinal', SF: 'Semifinal', F: 'Final' };
+  const STAGE_LABEL = { league: 'League', group: 'Group stage', R2: 'Second round', R16: 'Round of 16', QF: 'Quarterfinal', SF: 'Semifinal', F: 'Final' };
+  // Städtepokal v2: 20 cities × 6 players. These four left the competition; their players moved.
+  const RETIRED_CITIES = ['bonn', 'essen', 'augsburg', 'karlsruhe'];
 
   function color(i, n) { return `hsl(${Math.round((i * 360) / n + 15) % 360} 62% 58%)`; }
 
@@ -154,18 +156,55 @@
   function newDB() {
     const world = buildWorld();
     const now = new Date().toISOString();
-    return { app: 'Cricket Dice', version: 1, rev: 0, createdAt: now, updatedAt: now, players: world.players, teams: world.teams, competitions: [], matches: [], stats: {} };
+    const db = { app: 'Cricket Dice', version: 1, rev: 0, createdAt: now, updatedAt: now, players: world.players, teams: world.teams, competitions: [], matches: [], stats: {} };
+    migrate(db);
+    return db;
+  }
+
+  // Bring an older history up to date. Returns true if anything changed (so it should be saved).
+  //   cupVersion 2: Städtepokal goes from 24 cities × 5 players to 20 cities × 6 players.
+  //   Players, ratings and Länderliga squads stay exactly the same.
+  function migrate(db) {
+    if ((db.cupVersion || 1) >= 2) return false;
+    const pm = playerMap(db);
+    const old = db.teams.cup;
+    db.teams.cupV1 = JSON.parse(JSON.stringify(old));          // kept for older seasons and scorecards
+    const active = old.filter(t => !RETIRED_CITIES.includes(t.id)).map(t => ({ ...t, players: t.players.slice() }));
+    const ovr = pid => pm[pid].bat + pm[pid].bowl;
+    const strength = t => t.players.reduce((s, pid) => s + ovr(pid), 0);
+    let moving = old.filter(t => RETIRED_CITIES.includes(t.id)).flatMap(t => t.players.map(pid => ({ pid, state: t.state })));
+    moving.sort((a, b) => ovr(b.pid) - ovr(a.pid));
+    // 1) a city in the same state takes one player each
+    for (const t of active) {
+      const i = moving.findIndex(m => m.state === t.state);
+      if (i >= 0 && RETIRED_CITIES.some(id => (old.find(o => o.id === id) || {}).state === t.state)) t.players.push(moving.splice(i, 1)[0].pid);
+    }
+    // 2) the rest go to the weakest cities that still have 5
+    for (const m of moving) {
+      const t = active.filter(x => x.players.length < 6).sort((a, b) => strength(a) - strength(b))[0];
+      t.players.push(m.pid);
+    }
+    for (const t of active) for (const pid of t.players) pm[pid].city = t.id;
+    db.teams.cup = active;
+    db.cupVersion = 2;
+    return true;
   }
 
   // ---------------- Lookups ----------------
   const playerMap = db => { const m = {}; for (const p of db.players) m[p.id] = p; return m; };
-  function teamOf(db, kind, id) { return db.teams[kind].find(t => t.id === id); }
+  function teamOf(db, kind, id) {
+    return db.teams[kind].find(t => t.id === id) || (kind === 'cup' && db.teams.cupV1 ? db.teams.cupV1.find(t => t.id === id) : undefined);
+  }
+  // Squads a season was played with: seasons started before v2 keep the old 24-city squads
+  function squadsFor(db, comp) {
+    return comp && comp.kind === 'cup' && comp.format !== 'v2' && db.teams.cupV1 ? db.teams.cupV1 : db.teams[comp ? comp.kind : 'league'];
+  }
   function activeComp(db, kind) { return db.competitions.find(c => c.kind === kind && c.status !== 'complete'); }
   function lastComp(db, kind) { const l = db.competitions.filter(c => c.kind === kind); return l[l.length - 1]; }
 
   // Squad in batting order, shaped for the engine
-  function engineTeam(db, kind, id) {
-    const t = teamOf(db, kind, id), pm = playerMap(db);
+  function engineTeam(db, kind, id, comp) {
+    const t = (comp ? squadsFor(db, comp).find(x => x.id === id) : null) || teamOf(db, kind, id), pm = playerMap(db);
     const players = t.players.map(pid => pm[pid]).sort((a, b) => b.bat - a.bat)
       .map(p => ({ pid: p.id, name: p.name, bat: p.bat, bowl: p.bowl, type: p.type }));
     return { id: t.id, name: t.name, short: t.short, color: t.color, players };
@@ -173,11 +212,14 @@
 
   // ---------------- Fixtures ----------------
   function roundRobin(ids) {
-    const n = ids.length, arr = ids.slice(), rounds = [];
+    const arr = ids.slice();
+    if (arr.length % 2) arr.push(null);          // odd number of teams: one sits out each round
+    const n = arr.length, rounds = [];
     for (let r = 0; r < n - 1; r++) {
       const games = [];
       for (let i = 0; i < n / 2; i++) {
         const a = arr[i], b = arr[n - 1 - i];
+        if (a === null || b === null) continue;
         games.push(r % 2 ? [b, a] : [a, b]);
       }
       rounds.push(games);
@@ -196,7 +238,8 @@
     const r = rng(seed);
     const comp = {
       id: `${kind}-s${season}`, kind, name: cfg.name, season, status: 'active', stage: kind === 'league' ? 'league' : 'group',
-      overs: cfg.overs, maxOversPerBowler: cfg.maxOversPerBowler, startedAt: new Date().toISOString(),
+      overs: cfg.overs, maxOversPerBowler: cfg.maxOversPerBowler, maxBallsPerBatter: cfg.maxBallsPerBatter || null,
+      format: cfg.format || null, startedAt: new Date().toISOString(),
       fixtures: [], groups: null, summary: null,
     };
     let n = 0;
@@ -205,13 +248,14 @@
       const ids = shuffle(db.teams.league.map(t => t.id), r);
       roundRobin(ids).forEach((games, ri) => games.forEach(([a, b]) => comp.fixtures.push(fx('league', ri + 1, a, b))));
     } else {
+      // 5 groups of 4, everyone plays everyone in the group (6 matches per group)
       const ids = shuffle(db.teams.cup.map(t => t.id), r);
       comp.groups = {};
-      'ABCDEFGH'.split('').forEach((g, gi) => { comp.groups[g] = ids.slice(gi * 3, gi * 3 + 3); });
-      const pairs = [[0, 1], [0, 2], [1, 2]];
-      pairs.forEach(([x, y], md) => {
-        for (const g of Object.keys(comp.groups)) comp.fixtures.push(fx('group', md + 1, comp.groups[g][x], comp.groups[g][y], { group: g }));
-      });
+      'ABCDE'.split('').forEach((g, gi) => { comp.groups[g] = ids.slice(gi * 4, gi * 4 + 4); });
+      const perGroup = Object.fromEntries(Object.entries(comp.groups).map(([g, t]) => [g, roundRobin(t)]));
+      for (let md = 0; md < 3; md++) {
+        for (const g of Object.keys(comp.groups)) for (const [a, b] of perGroup[g][md]) comp.fixtures.push(fx('group', md + 1, a, b, { group: g }));
+      }
     }
     comp._n = n;
     db.competitions.push(comp);
@@ -251,6 +295,7 @@
   }
   const leagueTable = (db, comp) => table(db, comp, db.teams.league.map(t => t.id), f => f.stage === 'league');
   const groupTable = (db, comp, g) => table(db, comp, comp.groups[g], f => f.stage === 'group' && f.group === g);
+  const round2Table = (db, comp, g) => table(db, comp, comp.groups2[g], f => f.stage === 'R2' && f.group === g);
 
   // ---------------- Recording a finished match ----------------
   function summarize(db, comp, fixture, match, mode) {
@@ -261,7 +306,7 @@
       return {
         team: bt.id, runs: I.runs, wkts: I.wkts, balls: I.balls, extras: I.extras.wd + I.extras.nb,
         batting: I.batters.filter(b => b.batted).map(b => ({
-          pid: bt.players[b.idx].pid, r: b.runs, b: b.balls, f4: b.fours, s6: b.sixes, out: !!b.out, how: b.out ? b.out.text : 'not out',
+          pid: bt.players[b.idx].pid, r: b.runs, b: b.balls, f4: b.fours, s6: b.sixes, out: !!b.out, how: b.out ? b.out.text : (b.retired && !b.returned ? 'retired not out' : 'not out'),
         })),
         dnb: I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].pid),
         bowling: Object.entries(I.bowlers).sort((a, b) => a[1].order - b[1].order).map(([idx, s]) => ({
@@ -325,6 +370,24 @@
         const t = leagueTable(db, comp);
         addFixture(comp, 'SF', 1, t[0].id, t[3].id, { label: 'Semifinal 1 (1st v 4th)' });
         addFixture(comp, 'SF', 1, t[1].id, t[2].id, { label: 'Semifinal 2 (2nd v 3rd)' });
+        comp.stage = 'SF';
+      }
+    } else if (comp.format === 'v2') {
+      if (comp.stage === 'group' && stageDone(comp, 'group')) {
+        // Second round: winners of A, C, E + runners-up of B, D in Group X; the rest in Group Y
+        const pos = {};
+        for (const g of Object.keys(comp.groups)) pos[g] = groupTable(db, comp, g).map(r => r.id);
+        comp.groups2 = {
+          X: [pos.A[0], pos.C[0], pos.E[0], pos.B[1], pos.D[1]],
+          Y: [pos.B[0], pos.D[0], pos.A[1], pos.C[1], pos.E[1]],
+        };
+        const rr = { X: roundRobin(comp.groups2.X), Y: roundRobin(comp.groups2.Y) };
+        for (let rd = 0; rd < rr.X.length; rd++) for (const g of ['X', 'Y']) for (const [a, b] of rr[g][rd]) addFixture(comp, 'R2', rd + 1, a, b, { group: g });
+        comp.stage = 'R2';
+      } else if (comp.stage === 'R2' && stageDone(comp, 'R2')) {
+        const x = round2Table(db, comp, 'X').map(r => r.id), y = round2Table(db, comp, 'Y').map(r => r.id);
+        addFixture(comp, 'SF', 1, x[0], y[1], { label: 'Semifinal 1 (X1 v Y2)' });
+        addFixture(comp, 'SF', 1, y[0], x[1], { label: 'Semifinal 2 (Y1 v X2)' });
         comp.stage = 'SF';
       }
     } else {
@@ -512,8 +575,8 @@
   // ---------------- Simulation ----------------
   function buildMatch(db, comp, f) {
     return E.createMatch({
-      overs: comp.overs, maxOversPerBowler: comp.maxOversPerBowler, pitch: f.pitch,
-      teams: [engineTeam(db, comp.kind, f.home), engineTeam(db, comp.kind, f.away)],
+      overs: comp.overs, maxOversPerBowler: comp.maxOversPerBowler, maxBallsPerBatter: comp.maxBallsPerBatter || null, pitch: f.pitch,
+      teams: [engineTeam(db, comp.kind, f.home, comp), engineTeam(db, comp.kind, f.away, comp)],
     });
   }
 
@@ -553,7 +616,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, groupTable, recordMatch, computeStats, competitionStats,
+    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, squadsFor, RETIRED_CITIES,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine,
   };

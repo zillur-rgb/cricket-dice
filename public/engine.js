@@ -118,6 +118,7 @@
     return {
       overs,
       maxOversPerBowler: cfg.maxOversPerBowler || Math.max(1, Math.ceil(overs / 5)),
+      maxBallsPerBatter: cfg.maxBallsPerBatter || null,   // batter retires (not out) after this many balls
       pitch: cfg.pitch || 'balanced',
       teams: [teamA, teamB],
       innings: [],
@@ -382,6 +383,7 @@
     }
 
     // Legal delivery
+    const facedIdx = inn.striker;
     const out = pickWeighted(legal);
     const wasFreeHit = inn.freeHit;
     inn.freeHit = false;
@@ -400,9 +402,9 @@
       ev.text = `OUT! ${strikerName} ${st.out.text}. ${st.runs} (${st.balls})`;
       tokens.push('W');
       inn.partnership = { runs: 0, balls: 0 };
-      if (inn.wkts < maxWkts(match, inn) && inn.nextIn < match.teams[inn.bat].players.length) {
-        inn.striker = inn.nextIn++;
-        inn.batters[inn.striker].batted = true;
+      if (inn.wkts < maxWkts(match, inn)) {
+        const nb = nextBatter(match, inn, facedIdx);
+        if (nb === null) inn.noBatters = true; else inn.striker = nb;
       }
     } else {
       const r = Number(out);
@@ -413,6 +415,21 @@
       ev.type = 'runs'; ev.runs = r; ev.text = pickOne(LINES[out]);
       tokens.push(r === 0 ? '•' : String(r));
       if (r % 2 === 1) swapStrike(inn);
+    }
+
+    // Ball limit: the batter retires not out and the next one comes in
+    if (match.maxBallsPerBatter && !st.out && !st.returned && st.balls >= match.maxBallsPerBatter) {
+      const nb = nextBatter(match, inn, facedIdx);
+      if (nb === null) {
+        st.returned = true;   // nobody else left, so they bat on
+      } else {
+        st.retired = true;
+        st.retiredOrder = inn.retireCount = (inn.retireCount || 0) + 1;
+        if (inn.striker === facedIdx) inn.striker = nb; else inn.nonStriker = nb;
+        inn.partnership = { runs: 0, balls: 0 };
+        ev.retired = strikerName;
+        ev.text += ` ${strikerName} retires not out on ${st.runs} (${st.balls}).`;
+      }
     }
 
     // End of over
@@ -428,13 +445,25 @@
     return ev;
   }
 
+  // Next batter in: a fresh one if any are left, otherwise a retired batter comes back
+  // (earliest retired first) and bats on with no ball limit.
+  function nextBatter(match, inn, exclude) {
+    const n = match.teams[inn.bat].players.length;
+    if (inn.nextIn < n) { const i = inn.nextIn++; inn.batters[i].batted = true; return i; }
+    const back = inn.batters
+      .filter(b => b.retired && !b.out && !b.returned && b.idx !== exclude && b.idx !== inn.striker && b.idx !== inn.nonStriker)
+      .sort((a, b) => a.retiredOrder - b.retiredOrder)[0];
+    if (back) { back.returned = true; return back.idx; }
+    return null;
+  }
+
   function maxWkts(match, inn) { return match.teams[inn.bat].players.length - 1; }
 
   function swapStrike(inn) { const t = inn.striker; inn.striker = inn.nonStriker; inn.nonStriker = t; }
 
   function checkEnd(match) {
     const inn = cur(match);
-    const allOut = inn.wkts >= maxWkts(match, inn);
+    const allOut = inn.wkts >= maxWkts(match, inn) || !!inn.noBatters;
     const oversDone = inn.balls >= match.overs * 6;
     const chased = inn.target !== null && inn.runs >= inn.target;
     if (allOut || oversDone || chased) {

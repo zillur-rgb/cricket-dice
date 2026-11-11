@@ -420,7 +420,7 @@
     const bRow = idx => {
       const b = i.batters[idx];
       return `<div class="pl-row ${idx === i.striker ? 'on-strike' : ''}"><span class="pname">${esc(bt.players[idx].name)}</span>
-        <span class="num">${b.runs} (${b.balls})${b.fours || b.sixes ? ` <span class="muted">${b.fours}×4 ${b.sixes}×6</span>` : ''}</span></div>`;
+        <span class="num">${b.runs} (${b.balls}${state.match.maxBallsPerBatter && !b.returned ? '/' + state.match.maxBallsPerBatter : ''})${b.fours || b.sixes ? ` <span class="muted">${b.fours}×4 ${b.sixes}×6</span>` : ''}</span></div>`;
     };
     const tokens = (i.overLog[i.overLog.length - 1] || []).map(t => {
       const cls = t === '4' ? 't4' : t === '6' ? 't6' : t === 'W' ? 'tW' : (t.startsWith('wd') || t.startsWith('nb')) ? 'tx' : '';
@@ -501,7 +501,7 @@
     const rows = I.batters.filter(b => b.batted).map(b => {
       const p = bt.players[b.idx];
       const atCrease = !b.out && !I.done && (b.idx === I.striker || b.idx === I.nonStriker);
-      const how = b.out ? b.out.text : 'not out';
+      const how = b.out ? b.out.text : (b.retired && !b.returned ? 'retired not out' : 'not out');
       const sr = b.balls ? (b.runs * 100 / b.balls).toFixed(0) : '–';
       return `<tr class="${atCrease ? 'batting' : ''}"><td>${esc(p.name)}<span class="how">${esc(how)}</span></td>
         <td><b>${b.runs}</b></td><td>${b.balls}</td><td>${b.fours}</td><td>${b.sixes}</td><td>${sr}</td></tr>`;
@@ -654,6 +654,7 @@
         <li><b>Getting set</b>: the first 5 balls are riskier. After 25 balls a batter is harder to get out and scores faster.</li>
         <li><b>Phase</b>: the powerplay boosts fours. Death overs boost sixes and wickets.</li>
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
+        <li><b>Städtepokal</b>: 6 players, 6 overs. Every player bowls one over, and a batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: only a run-out can get you.</li>
       </ul>
       <p><b>Keys:</b> Q / W / E bowling plan · 1 / 2 / 3 shot · Space bowls.</p>
@@ -718,6 +719,7 @@
     if (!db || !db.players) { db = C.newDB(); state.db = db; await save(); }
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
+    if (C.migrate(db)) await save();
     render();
   }
 
@@ -733,6 +735,7 @@
     else db = await loadCloud(j);
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
+    if (C.migrate(db)) await save();
     state.match = null; state.ctx = null;
     state.screen = 'home';
     updateProfileButton();
@@ -882,7 +885,7 @@
     });
     const matches = [];
     db.matches.forEach((m, i) => { if (!state.savedIds.has(m.id)) matches.push({ ...m, seq: i }); });
-    const meta = { app: db.app, version: db.version, createdAt: db.createdAt, players: db.players, teams: db.teams };
+    const meta = { app: db.app, version: db.version, cupVersion: db.cupVersion, createdAt: db.createdAt, players: db.players, teams: db.teams };
     try {
       const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats }) });
       if (res.status === 401) { sessionExpired(); return false; }
@@ -927,7 +930,7 @@
       try {
         const { res, j } = await api('api/db', {
           method: 'POST',
-          body: JSON.stringify({ mode: 'replace', meta: { app: fresh.app, version: fresh.version, createdAt: fresh.createdAt, players: fresh.players, teams: fresh.teams }, competitions: [], matches: [], stats: C.computeStats(fresh) }),
+          body: JSON.stringify({ mode: 'replace', meta: { app: fresh.app, version: fresh.version, cupVersion: fresh.cupVersion, createdAt: fresh.createdAt, players: fresh.players, teams: fresh.teams }, competitions: [], matches: [], stats: C.computeStats(fresh) }),
         });
         if (res.status === 401) { sessionExpired(); return; }
         if (!res.ok) throw new Error((j && j.error) || 'reset failed');
@@ -1025,6 +1028,7 @@
   function fixtureLabel(comp, f) {
     if (f.label) return `${comp.name} ${f.label}`;
     if (f.stage === 'group') return `${comp.name} Group ${f.group}, match ${f.round}`;
+    if (f.stage === 'R2') return `${comp.name} Second round Group ${f.group}, match ${f.round}`;
     return `${comp.name} round ${f.round}`;
   }
   function liveMatchInProgress() { return state.match && state.match.innings.length && !state.match.result; }
@@ -1035,7 +1039,7 @@
     const comp = C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
     const blurb = kind === 'league'
       ? `16 German states · 7 players each · ${cfg.overs} overs · everyone plays everyone, top 4 to the semifinals`
-      : `24 German cities · 5 players each · ${cfg.overs} overs · 8 groups of 3, top 2 into a knockout`;
+      : `20 German cities · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`;
     let status = '<span class="muted">No season played yet</span>';
     if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
     else if (comp) {
@@ -1092,7 +1096,7 @@
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
           ? `All 16 German states, 7 players each, ${cfg.overs}-over matches. Every team plays every other team once (120 matches). The top 4 meet in the semifinals, then the final.`
-          : `The 24 biggest German cities, 5 players each, ${cfg.overs}-over matches. 8 groups of 3; the top 2 in each group go into a Round of 16, then quarterfinals, semifinals and the final.`}</p></div>
+          : `20 German cities, 6 players each, ${cfg.overs}-over matches. Everyone bowls one over, and a batter retires not out after ${cfg.maxBallsPerBatter} balls. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
         <div class="panel" style="margin-top:16px">${squadsHTML(kind)}</div>
@@ -1103,7 +1107,9 @@
     }
     const tabs = kind === 'league'
       ? [['table', 'Table'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
-      : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
+      : comp.format === 'v2'
+        ? [['groups', 'Groups'], ['round2', 'Second round'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
+        : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
     let tab = state.compTab[kind];
     const done = comp.fixtures.filter(f => f.result).length;
     const next = C.pendingFixtures(comp)[0];
@@ -1136,6 +1142,7 @@
     let body = '';
     if (tab === 'table') body = leagueTableHTML(comp);
     else if (tab === 'groups') body = groupsHTML(comp);
+    else if (tab === 'round2') body = round2HTML(comp);
     else if (tab === 'playoffs' || tab === 'knockout') body = bracketHTML(comp);
     else if (tab === 'fixtures') body = fixturesHTML(comp);
     else if (tab === 'leaders') {
@@ -1216,7 +1223,17 @@
   }
   function groupsHTML(comp) {
     return `<div class="groups">${Object.keys(comp.groups).map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.groupTable(state.db, comp, g), 2)}</div>`).join('')}</div>
-      <p class="muted note">Top 2 in each group reach the Round of 16.</p>`;
+      <p class="muted note">${comp.format === 'v2' ? 'Top 2 in each group reach the second round.' : 'Top 2 in each group reach the Round of 16.'}</p>`;
+  }
+
+  function round2HTML(comp) {
+    if (!comp.groups2) {
+      return `<p class="muted" style="margin-top:0">The second round starts when the group stage is finished.</p>
+        <div class="groups"><div><h3>Group X</h3><p class="muted note">Winners of groups A, C and E, runners-up of B and D</p></div>
+        <div><h3>Group Y</h3><p class="muted note">Winners of groups B and D, runners-up of A, C and E</p></div></div>`;
+    }
+    return `<div class="groups">${['X', 'Y'].map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.round2Table(state.db, comp, g), 2)}</div>`).join('')}</div>
+      <p class="muted note">Top 2 in each group reach the semifinals: X1 v Y2 and Y1 v X2.</p>`;
   }
 
   function koMatchHTML(comp, f) {
@@ -1231,12 +1248,14 @@
   }
   function bracketHTML(comp) {
     const st = s => comp.fixtures.filter(f => f.stage === s);
-    const stages = comp.kind === 'league' ? [['SF', 'Semifinals', 2], ['F', 'Final', 1]] : [['R16', 'Round of 16', 8], ['QF', 'Quarterfinals', 4], ['SF', 'Semifinals', 2], ['F', 'Final', 1]];
+    const stages = comp.kind === 'league' || comp.format === 'v2' ? [['SF', 'Semifinals', 2], ['F', 'Final', 1]] : [['R16', 'Round of 16', 8], ['QF', 'Quarterfinals', 4], ['SF', 'Semifinals', 2], ['F', 'Final', 1]];
     const cols = stages.map(([s, label, n]) => {
       const list = st(s);
       return `<div class="bcol"><h3>${label}</h3><div class="bcol-list">${Array.from({ length: n }, (_, i) => koMatchHTML(comp, list[i])).join('')}</div></div>`;
     }).join('');
-    const intro = comp.kind === 'league' ? 'Semifinals: 1st v 4th and 2nd v 3rd after the league stage.' : 'Group winners play runners-up from the neighbouring group.';
+    const intro = comp.kind === 'league' ? 'Semifinals: 1st v 4th and 2nd v 3rd after the league stage.'
+      : comp.format === 'v2' ? 'Semifinals: winner of second-round Group X v runner-up of Group Y, and winner of Y v runner-up of X.'
+      : 'Group winners play runners-up from the neighbouring group.';
     return `<p class="muted note" style="margin-top:0">${intro} A tied knockout is decided on boundary count.</p><div class="bracket">${cols}</div>`;
   }
 
@@ -1244,7 +1263,7 @@
     const kind = comp.kind;
     const groups = [];
     for (const f of comp.fixtures) {
-      const key = f.stage === 'league' ? `Round ${f.round}` : f.stage === 'group' ? `Group stage · matchday ${f.round}` : C.STAGE_LABEL[f.stage];
+      const key = f.stage === 'league' ? `Round ${f.round}` : f.stage === 'group' ? `Group stage · matchday ${f.round}` : f.stage === 'R2' ? `Second round · round ${f.round}` : C.STAGE_LABEL[f.stage];
       let g = groups.find(x => x.key === key); if (!g) groups.push(g = { key, list: [] });
       g.list.push(f);
     }
@@ -1263,7 +1282,7 @@
     const card = (t) => `<div class="squad"><h3>${chipTeam(kind, t.id)}</h3><ul>${t.players.map(id => pm[id]).sort((a, b) => b.bat - a.bat).map(p => `<li><button class="plink" data-player="${p.id}">${esc(p.name)}</button><span class="rt">BAT ${p.bat} · BOWL ${p.bowl} <span class="type-pill ${p.type}">${p.type}</span></span></li>`).join('')}</ul></div>`;
     return `<p class="muted note" style="margin-top:0">${kind === 'league'
       ? 'Each state fields 7 players: its own cities\' players first, with small states topped up from the big ones.'
-      : 'Each city fields its 5 players.'} Every player bowls.</p>
+      : `Each city fields its ${C.COMPS.cup.squad} players.`} Every player bowls.</p>
       <div class="squads">${teams.map(card).join('')}</div>
       ${reserves.length ? `<p class="muted note">Not in a state squad this year (they still play in the Städtepokal): ${reserves.map(p => esc(p.name)).join(', ')}</p>` : ''}`;
   }
