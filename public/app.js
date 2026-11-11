@@ -61,6 +61,7 @@
     else if (state.screen === 'comp') renderComp(state.compKind);
     else if (state.screen === 'players') renderPlayers();
     else if (state.screen === 'history') renderHistory();
+    else if (state.screen === 'transfers') renderTransfers();
     else if (state.screen === 'setup') renderSetup();
     else if (state.screen === 'toss') renderToss();
     else if (state.screen === 'play') renderPlay();
@@ -1070,7 +1071,7 @@
 
   // ======================= NAV & LOOKUPS =======================
   function navKey() {
-    if (state.screen === 'comp') return state.compKind;
+    if (state.screen === 'comp' || state.screen === 'transfers') return state.compKind;
     if (['setup', 'toss', 'play', 'break', 'result'].includes(state.screen)) return state.ctx ? compById(state.ctx.compId).kind : 'friendly';
     return state.screen;
   }
@@ -1173,12 +1174,14 @@
       bindPlayerLinks();
       return;
     }
-    const tabs = kind === 'league'
+    const baseTabs = kind === 'league'
       ? [['table', 'Table'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
       : comp.format === 'v2'
         ? [['groups', 'Groups'], ['round2', 'Second round'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
         : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
+    const tabs = comp.transfers ? baseTabs.concat([['transfers', 'Transfers']]) : baseTabs;
     let tab = state.compTab[kind];
+    if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
     const done = comp.fixtures.filter(f => f.result).length;
     const next = C.pendingFixtures(comp)[0];
     const stageLeft = C.pendingFixtures(comp).filter(f => f.stage === comp.stage).length;
@@ -1221,7 +1224,8 @@
           : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
         <p class="muted note">Points add up each player's match performances: runs, strike rate, wickets and economy.</p></div>
         <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>`;
-    } else body = squadsHTML(kind, comp);
+    } else if (tab === 'transfers') body = transfersHTML(kind, comp.transfers, `How the squads changed after season ${comp.transfers.fromSeason}.`);
+    else body = squadsHTML(kind, comp);
 
     app.innerHTML = `<section class="comp">
       <div class="comp-head">
@@ -1251,7 +1255,58 @@
     });
     app.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
     const ns = document.getElementById('btn-new-season');
-    if (ns) ns.onclick = () => { C.startCompetition(db, kind); state.compTab[kind] = kind === 'league' ? 'table' : 'groups'; save(); render(); };
+    if (ns) ns.onclick = () => openTransfers(kind);
+    bindPlayerLinks();
+  }
+
+  // ---------- Transfer window between seasons ----------
+  function openTransfers(kind) {
+    state.compKind = kind;
+    state.transferPlan = C.planTransfers(state.db, kind);
+    if (!state.transferPlan) { C.startCompetition(state.db, kind); save(); render(); return; }
+    state.screen = 'transfers';
+    render();
+  }
+
+  function transfersHTML(kind, plan, intro) {
+    const pm = pmap();
+    const short = id => id ? esc(C.teamOf(state.db, kind, id).short) : 'free';
+    const pts = pid => (plan.points && plan.points[pid] != null) ? `${plan.points[pid]} pts` : '';
+    const cards = plan.teams.map(t => `<div class="tw-team">
+        <h3>${chipTeam(kind, t.id)}</h3>
+        <div class="tw-label">Kept</div>
+        <ul>${t.kept.map(pid => `<li><button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button><span class="rt">${pts(pid)}</span></li>`).join('')}</ul>
+        <div class="tw-label new">New</div>
+        <ul>${t.signed.map(s => `<li><button class="plink" data-player="${s.pid}">${esc(pm[s.pid].name)}</button><span class="rt">${s.from === t.id ? 'back again' : 'from ' + short(s.from)} · bat ${pm[s.pid].bat} · bowl ${pm[s.pid].bowl}</span></li>`).join('')}</ul>
+        <div class="tw-left">Left: ${t.released.map(pid => esc(pm[pid].name)).join(', ')}</div>
+      </div>`).join('');
+    return `${intro ? `<p class="muted note" style="margin-top:0">${intro}</p>` : ''}
+      <div class="tw-grid">${cards}</div>
+      ${plan.unsigned && plan.unsigned.length ? `<p class="muted note">Without a team this season: ${plan.unsigned.map(pid => `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>`).join(', ')}</p>` : ''}`;
+  }
+
+  function renderTransfers() {
+    const plan = state.transferPlan, kind = plan.kind, cfg = C.COMPS[kind];
+    const newPer = cfg.squad - 3;
+    app.innerHTML = `<section class="comp">
+      <div class="comp-head"><div><div class="cc-kicker">${cfg.name} · before season ${plan.toSeason}</div><h1>Transfer window</h1>
+        <div class="muted">Each team keeps its 3 best performers from season ${plan.fromSeason}. Everyone else is released, and the ${newPer} open spots per team are filled from the released players: random, but weaker teams pick first so no side is left hopeless.</div></div></div>
+      <div class="panel tw-actions">
+        <button class="primary" id="tw-start">Start season ${plan.toSeason}</button>
+        <button class="secondary" id="tw-cancel">Not now</button>
+      </div>
+      <div class="panel">${transfersHTML(kind, plan, '')}</div>
+    </section>`;
+    document.getElementById('tw-start').onclick = async () => {
+      const comp = C.applyTransfers(state.db, plan);
+      state.transferPlan = null;
+      state.compTab[kind] = kind === 'league' ? 'table' : 'groups';
+      state.screen = 'comp';
+      render();
+      await save();
+      showToast(`Season ${comp.season} started with the new squads`);
+    };
+    document.getElementById('tw-cancel').onclick = () => { state.transferPlan = null; openComp(kind); };
     bindPlayerLinks();
   }
 
@@ -1433,6 +1488,16 @@
     (rootEl || app).querySelectorAll('[data-player]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.player); });
   }
 
+  function teamHistoryHTML(pid) {
+    const rows = ['league', 'cup'].map(kind => {
+      const list = state.db.competitions.filter(c => c.kind === kind).map(c => {
+        const t = C.squadsFor(state.db, c).find(x => x.players.includes(pid));
+        return `S${c.season} ${t ? esc(t.short || t.name) : '–'}`;
+      });
+      return list.length ? `<div><span class="tw-label">${C.COMPS[kind].name}</span> ${list.join(' · ')}</div>` : '';
+    }).join('');
+    return rows ? `<div class="team-history">${rows}</div>` : '';
+  }
   function seriesTitles(pid) {
     const won = state.db.competitions.filter(c => c.summary && c.summary.playerOfSeries && c.summary.playerOfSeries.pid === pid).map(c => `${c.name} S${c.season}`);
     return won.length ? ` (${esc(won.join(', '))})` : '';
@@ -1448,6 +1513,7 @@
       <h2 style="margin:4px 0">${esc(p.name)}</h2>
       <p class="muted" style="margin:0 0 12px;font-size:14px">Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}<br>
         Player of the match: <b>${st.all.motm}</b> · Player of the series: <b>${st.all.pos}</b>${seriesTitles(pid)}</p>
+      ${teamHistoryHTML(pid)}
       <h3>Batting</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Mat</th><th>Inn</th><th>Runs</th><th>Balls</th><th>HS</th><th>Avg</th><th>SR</th><th>4s</th><th>6s</th><th>30/50</th></tr></thead><tbody>
         ${row('Career', st.all)}${row('Länderliga', st.league)}${row('Städtepokal', st.cup)}</tbody></table></div>

@@ -207,7 +207,70 @@
   }
   // Squads a season was played with: seasons started before v2 keep the old 24-city squads
   function squadsFor(db, comp) {
+    if (comp && comp.squads) {
+      // each season remembers the squads it was played with
+      const base = comp.kind === 'cup' && comp.format !== 'v2' && db.teams.cupV1 ? db.teams.cupV1 : db.teams[comp.kind];
+      return base.filter(t => comp.squads[t.id]).map(t => ({ ...t, players: comp.squads[t.id].slice() }));
+    }
     return comp && comp.kind === 'cup' && comp.format !== 'v2' && db.teams.cupV1 ? db.teams.cupV1 : db.teams[comp ? comp.kind : 'league'];
+  }
+  const snapshotSquads = teams => Object.fromEntries(teams.map(t => [t.id, t.players.slice()]));
+
+  // ---------------- Transfers between seasons ----------------
+  // Every team keeps its 3 best performers of last season (by Player of the Series points);
+  // everyone else goes into a pool, and the open spots are filled by a "random but balanced"
+  // draft: the pool is ranked by rating plus a big random factor, and teams pick in snake
+  // order, weakest kept trio first.
+  const KEEP = 3;
+  function planTransfers(db, kind, seed) {
+    const last = lastComp(db, kind);
+    if (!last || last.status !== 'complete') return null;
+    const r = rng(seed || (Date.now() % 1e6) + 17);
+    const pm = playerMap(db);
+    const ovr = pid => pm[pid].bat + pm[pid].bowl;
+    const points = {};
+    for (const x of seriesRace(db, last.id)) points[x.pid] = x.points;
+    const teams = db.teams[kind];
+    const squadSize = COMPS[kind].squad;
+    const plan = teams.map(t => {
+      const ranked = t.players.slice().sort((a, b) => (points[b] || 0) - (points[a] || 0) || ovr(b) - ovr(a));
+      return { id: t.id, kept: ranked.slice(0, KEEP), released: ranked.slice(KEEP), signed: [] };
+    });
+    const taken = new Set(plan.flatMap(t => t.kept));
+    const pool = shuffle(db.players.map(p => p.id).filter(pid => !taken.has(pid)), r)
+      .map(pid => ({ pid, score: ovr(pid) + (r() - 0.5) * 40 }))
+      .sort((a, b) => b.score - a.score);
+    const strength = t => t.kept.concat(t.signed).reduce((s, pid) => s + ovr(pid), 0);
+    for (let round = 0; round < squadSize - KEEP; round++) {
+      const order = plan.slice().sort((a, b) => strength(a) - strength(b));
+      if (round % 2) order.reverse();
+      for (const t of order) { const pick = pool.shift(); if (pick) t.signed.push(pick.pid); }
+    }
+    const was = {};
+    for (const t of teams) for (const pid of t.players) was[pid] = t.id;
+    return {
+      kind, fromSeason: last.season, toSeason: last.season + 1, points,
+      teams: plan.map(t => ({ ...t, signed: t.signed.map(pid => ({ pid, from: was[pid] || null })) })),
+      unsigned: pool.map(x => x.pid),
+    };
+  }
+
+  function applyTransfers(db, plan) {
+    const kind = plan.kind;
+    // seasons played before squads were remembered keep the squads they used
+    for (const c of db.competitions) if (c.kind === kind && !c.squads && !(kind === 'cup' && c.format !== 'v2')) c.squads = snapshotSquads(db.teams[kind]);
+    const pm = playerMap(db);
+    for (const t of plan.teams) {
+      const team = db.teams[kind].find(x => x.id === t.id);
+      team.players = t.kept.concat(t.signed.map(s => s.pid));
+    }
+    for (const p of db.players) {
+      const t = db.teams[kind].find(x => x.players.includes(p.id));
+      if (kind === 'league') p.state = t ? t.id : null; else p.city = t ? t.id : p.city;
+    }
+    const comp = startCompetition(db, kind);
+    comp.transfers = { fromSeason: plan.fromSeason, teams: plan.teams, unsigned: plan.unsigned };
+    return comp;
   }
   function activeComp(db, kind) { return db.competitions.find(c => c.kind === kind && c.status !== 'complete'); }
   function lastComp(db, kind) { const l = db.competitions.filter(c => c.kind === kind); return l[l.length - 1]; }
@@ -251,6 +314,7 @@
       overs: cfg.overs, maxOversPerBowler: cfg.maxOversPerBowler, maxBallsPerBatter: cfg.maxBallsPerBatter || null,
       format: cfg.format || null, startedAt: new Date().toISOString(),
       fixtures: [], groups: null, summary: null,
+      squads: snapshotSquads(kind === 'cup' && cfg.format !== 'v2' && db.teams.cupV1 ? db.teams.cupV1 : db.teams[kind]),
     };
     let n = 0;
     const fx = (stage, round, home, away, extra) => ({ id: `${comp.id}-m${++n}`, stage, round, home, away, pitch: pickPitch(r), matchId: null, result: null, ...(extra || {}) });
@@ -635,7 +699,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES,
+    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine,
   };
