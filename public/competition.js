@@ -73,8 +73,8 @@
   ];
 
   const COMPS = {
-    league: { name: 'Länderliga', overs: 10, maxOversPerBowler: 2, squad: 7, kind: 'league' },
-    cup: { name: 'Städtepokal', overs: 5, maxOversPerBowler: 1, squad: 5, kind: 'cup' },
+    league: { name: 'Länderliga', overs: 5, maxOversPerBowler: 1, squad: 7, kind: 'league' },
+    cup: { name: 'Städtepokal', overs: 10, maxOversPerBowler: 2, squad: 5, kind: 'cup' },
   };
   const STAGE_LABEL = { league: 'League', group: 'Group stage', R16: 'Round of 16', QF: 'Quarterfinal', SF: 'Semifinal', F: 'Final' };
 

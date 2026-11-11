@@ -855,8 +855,8 @@
     const cfg = C.COMPS[kind];
     const comp = C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
     const blurb = kind === 'league'
-      ? '16 German states · 7 players each · 10 overs · everyone plays everyone, top 4 to the semifinals'
-      : '24 German cities · 5 players each · 5 overs · 8 groups of 3, top 2 into a knockout';
+      ? `16 German states · 7 players each · ${cfg.overs} overs · everyone plays everyone, top 4 to the semifinals`
+      : `24 German cities · 5 players each · ${cfg.overs} overs · 8 groups of 3, top 2 into a knockout`;
     let status = '<span class="muted">No season played yet</span>';
     if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
     else if (comp) {
@@ -912,8 +912,8 @@
     if (!comp) {
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
-          ? 'All 16 German states, 7 players each, 10-over matches. Every team plays every other team once (120 matches). The top 4 meet in the semifinals, then the final.'
-          : 'The 24 biggest German cities, 5 players each, 5-over matches. 8 groups of 3; the top 2 in each group go into a Round of 16, then quarterfinals, semifinals and the final.'}</p></div>
+          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches. Every team plays every other team once (120 matches). The top 4 meet in the semifinals, then the final.`
+          : `The 24 biggest German cities, 5 players each, ${cfg.overs}-over matches. 8 groups of 3; the top 2 in each group go into a Round of 16, then quarterfinals, semifinals and the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
         <div class="panel" style="margin-top:16px">${squadsHTML(kind)}</div>

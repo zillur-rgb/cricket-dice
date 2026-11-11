@@ -174,12 +174,33 @@
     const all = team.players
       .map((pl, i) => ({ ...pl, idx: i, overs: Math.floor(((inn.bowlers[i] || {}).balls || 0) / 6) }));
     const regular = all.filter(b => b.type && b.idx !== inn.lastOverBowler && b.overs < match.maxOversPerBowler);
+    // Only offer bowlers that still let the innings be finished without anyone
+    // bowling two overs in a row or going over their limit
+    const oversLeft = match.overs - Math.floor(inn.balls / 6);
+    const caps = {};
+    for (const b of all) if (b.type) caps[b.idx] = match.maxOversPerBowler - b.overs;
+    const safe = regular.filter(b => canFinish({ ...caps, [b.idx]: caps[b.idx] - 1 }, b.idx, oversLeft - 1));
+    if (safe.length) return safe;
     if (regular.length) return regular;
     // Nobody left with overs: bring on part-timers so the game never gets stuck
     const part = all.filter(b => !b.type && b.idx !== inn.lastOverBowler).map(b => ({ ...b, partTime: true }));
     if (part.length) return part;
     // Last resort: anyone fit to bowl except the previous over's bowler
     return all.filter(b => b.idx !== inn.lastOverBowler).map(b => ({ ...b, extraOver: true }));
+  }
+
+  // Greedy check: always give the next over to whoever has the most overs left
+  // (excluding the previous bowler). This is optimal for "no two in a row".
+  function canFinish(caps, last, remaining) {
+    const left = { ...caps };
+    let prev = last;
+    for (let k = 0; k < remaining; k++) {
+      let best = null;
+      for (const id in left) if (String(id) !== String(prev) && left[id] > 0 && (best === null || left[id] > left[best])) best = id;
+      if (best === null) return false;
+      left[best]--; prev = best;
+    }
+    return true;
   }
 
   function needsBowler(match) {
