@@ -14,6 +14,7 @@
 // POST /api/db?action=login           { profile, pin }
 // POST /api/db                (x-profile, x-pin) → save; body { baseRev, meta, competitions, matches, stats, mode }
 //        mode 'save' (refused if someone saved in between), 'replace' (wipe this profile first), 'append'
+//        deleteCompetitions: [ids] removes those seasons and their matches (cancel a running season)
 
 const crypto = require('crypto');
 
@@ -134,6 +135,12 @@ async function handle(db, req, env) {
       return { status: 409, body: { error: 'conflict', rev: currentRev } };
     }
     if (mode === 'replace') await wipeProfile(db, P);
+    if (Array.isArray(b.deleteCompetitions)) {
+      for (const id of b.deleteCompetitions.map(String)) {
+        await db.collection('competitions').deleteMany({ _id: `${P}:${id}` });
+        await db.collection('matches').deleteMany({ profile: P, compId: id });
+      }
+    }
 
     const now = new Date().toISOString();
     if (Array.isArray(b.competitions) && b.competitions.length) {
