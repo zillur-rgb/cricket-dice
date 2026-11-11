@@ -20,6 +20,13 @@
     attack: { mult: { 0: 0.95, 4: 1.2, 6: 1.2, W: 1.35 }, wide: 1.4, nb: 1.5 },
   };
 
+  // How much player ratings matter (see ballProbabilities)
+  const SKILL = {
+    bowlMid: 62, bowlSpread: 20, batMid: 58, batSpread: 22,
+    b4: 0.42, b6: 0.55, b0: 0.18, bW: 0.45, bX: 0.35,   // bowler effects
+    a4: 0.28, a6: 0.38, a0: 0.12, aW: 0.40,             // batter effects
+  };
+
   const BASE_WIDE = 0.03;   // 3% of deliveries are wides at "normal"
   const BASE_NOBALL = 0.007;
 
@@ -281,12 +288,15 @@
     const plan = BOWL_PLANS[bowlPlan];
     for (const k in plan.mult) mul(k, plan.mult[k]);
 
-    // Skill duel
-    const d = (batter.bat - bowler.bowl) / 50;
-    mul('W', Math.exp(-0.55 * d));
-    mul('4', Math.exp(0.35 * d));
-    mul('6', Math.exp(0.4 * d));
-    mul('0', Math.exp(-0.2 * d));
+    // Skill: the bowler's own quality and the batter's own quality each count.
+    // q > 0 = better than average. Tuned so a weak bowler (~40) goes for ~12–13 an over
+    // and a top one (~85) for ~7.5–8, without changing the average team score.
+    const bq = (bowler.bowl - SKILL.bowlMid) / SKILL.bowlSpread;
+    const aq = (batter.bat - SKILL.batMid) / SKILL.batSpread;
+    mul('4', Math.exp(-SKILL.b4 * bq + SKILL.a4 * aq));
+    mul('6', Math.exp(-SKILL.b6 * bq + SKILL.a6 * aq));
+    mul('0', Math.exp(SKILL.b0 * bq - SKILL.a0 * aq));
+    mul('W', Math.exp(SKILL.bW * bq - SKILL.aW * aq));
 
     // Getting set
     if (bstat.balls < 5) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }
@@ -310,8 +320,9 @@
     const probs = {};
     for (const k of OUTCOME_KEYS) probs[k] = w[k] / total;
 
-    const wideP = BASE_WIDE * plan.wide * (ty === 'spin' ? 0.6 : 1);
-    const nbP = BASE_NOBALL * plan.nb * (ty === 'spin' ? 0.3 : 1);
+    const sloppy = Math.exp(-SKILL.bX * bq);    // weaker bowlers bowl more wides and no-balls
+    const wideP = BASE_WIDE * plan.wide * (ty === 'spin' ? 0.6 : 1) * sloppy;
+    const nbP = BASE_NOBALL * plan.nb * (ty === 'spin' ? 0.3 : 1) * sloppy;
     return { legal: probs, wideP, nbP, phase };
   }
 

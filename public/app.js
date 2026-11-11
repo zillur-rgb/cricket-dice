@@ -13,7 +13,7 @@
     store: 'loading',   // 'server' | 'local' | 'loading'
     saveMsg: '',
     ctx: null,          // { compId, fixtureId, recorded } when the live match belongs to a competition
-    compTab: { league: 'table', cup: 'groups' },
+    compTab: { league: 'div1', cup: 'groups' },
     plFilter: 'all', plSort: 'runs', plSearch: '',
     setup: { teamAId: 'hawks', teamBId: 'falcons', overs: 10, pitch: 'balanced' },
     match: null,
@@ -956,11 +956,13 @@
     db.matches.forEach((m, i) => { if (!state.savedIds.has(m.id)) matches.push({ ...m, seq: i }); });
     const meta = { app: db.app, version: db.version, cupVersion: db.cupVersion, createdAt: db.createdAt, players: db.players, teams: db.teams };
     try {
-      const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats }) });
+      const deleteCompetitions = (state.pendingDeletes || []).slice();
+      const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats, deleteCompetitions }) });
       if (res.status === 401) { sessionExpired(); return false; }
       if (res.status === 409) { state.saveMsg = 'Not saved: newer results were saved from another device. Reload the page to get them.'; showToast(state.saveMsg, true); return false; }
       if (!res.ok) throw new Error((j && j.error) || 'save failed');
       db.rev = j.rev;
+      state.pendingDeletes = (state.pendingDeletes || []).filter(id => !deleteCompetitions.includes(id));
       for (const m of matches) state.savedIds.add(m.id);
       for (const comp of db.competitions) state.compHash[comp.id] = JSON.stringify(comp);
       state.saveMsg = `Saved to ${state.profile.name}'s history.`;
@@ -1097,6 +1099,7 @@
   function fixtureLabel(comp, f) {
     if (f.label) return `${comp.name} ${f.label}`;
     if (f.stage === 'group') return `${comp.name} Group ${f.group}, match ${f.round}`;
+    if (f.div) return `${comp.name} ${f.div}. Liga, round ${f.round}`;
     if (f.stage === 'R2') return `${comp.name} Second round Group ${f.group}, match ${f.round}`;
     return `${comp.name} round ${f.round}`;
   }
@@ -1107,7 +1110,7 @@
     const cfg = C.COMPS[kind];
     const comp = C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
     const blurb = kind === 'league'
-      ? `16 German states · 7 players each · ${cfg.overs} overs · everyone plays everyone, top 4 to the semifinals`
+      ? `16 German states in two divisions · 7 players each · ${cfg.overs} overs · 2 up, 2 down every season`
       : `20 German cities · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`;
     let status = '<span class="muted">No season played yet</span>';
     if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
@@ -1164,7 +1167,7 @@
     if (!comp) {
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
-          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches. Every team plays every other team once (120 matches). The top 4 meet in the semifinals, then the final.`
+          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of the 1. Liga play the semifinals and the final. After each season the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga come up.`
           : `20 German cities, 6 players each, ${cfg.overs}-over matches. Everyone bowls one over, and a batter retires not out after ${cfg.maxBallsPerBatter} balls. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
@@ -1175,7 +1178,9 @@
       return;
     }
     const baseTabs = kind === 'league'
-      ? [['table', 'Table'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
+      ? comp.format === 'div'
+        ? [['div1', '1. Liga'], ['div2', '2. Liga'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
+        : [['table', 'Table'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
       : comp.format === 'v2'
         ? [['groups', 'Groups'], ['round2', 'Second round'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
         : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
@@ -1191,7 +1196,8 @@
       top = `<div class="champ">
         <div class="trophy">🏆</div>
         <div><div class="cc-kicker">Season ${comp.season} champions</div><h2 class="champ-name">${esc(comp.summary.champion)}</h2>
-        <div class="muted">${esc(comp.summary.final.result)} · Player of the final: ${esc(comp.summary.final.motm)}</div></div>
+        <div class="muted">${esc(comp.summary.final.result)} · Player of the final: ${esc(comp.summary.final.motm)}</div>
+        ${comp.summary.promoted ? `<div class="muted" style="font-size:14px;margin-top:4px">⬆ Up: <b>${comp.summary.promoted.map(esc).join(', ')}</b> · ⬇ Down: <b>${comp.summary.relegated.map(esc).join(', ')}</b></div>` : ''}</div>
         ${comp.summary.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
         <button class="primary" id="btn-new-season">Start season ${comp.season + 1}</button>
       </div>`;
@@ -1212,6 +1218,7 @@
 
     let body = '';
     if (tab === 'table') body = leagueTableHTML(comp);
+    else if (tab === 'div1' || tab === 'div2') body = divisionHTML(comp, tab === 'div1' ? 1 : 2);
     else if (tab === 'groups') body = groupsHTML(comp);
     else if (tab === 'round2') body = round2HTML(comp);
     else if (tab === 'playoffs' || tab === 'knockout') body = bracketHTML(comp);
@@ -1231,7 +1238,9 @@
       <div class="comp-head">
         <div><div class="cc-kicker">${kind === 'league' ? 'League' : 'Tournament'} · Season ${comp.season}</div><h1>${comp.name}</h1>
         <div class="muted">${C.STAGE_LABEL[comp.stage]}${comp.status === 'complete' ? ' · complete' : ''} · ${done} of ${comp.fixtures.length} matches played</div></div>
+        ${comp.status !== 'complete' ? '<button class="secondary danger-ghost" id="btn-cancel-season">Cancel this season</button>' : ''}
       </div>
+      ${comp.status !== 'complete' && comp.format !== cfg.format ? `<div class="store warn">● This season uses the old ${esc(cfg.name)} format. Cancel it to start fresh with the new format.</div>` : ''}
       ${storeBanner()}
       <div class="panel">${top}</div>
       <div class="panel">
@@ -1241,6 +1250,13 @@
     </section>`;
 
     app.querySelectorAll('[data-ctab]').forEach(b => b.onclick = () => { state.compTab[kind] = b.dataset.ctab; renderComp(kind); });
+    const cs = document.getElementById('btn-cancel-season');
+    if (cs) cs.onclick = () => confirmBox({
+      title: `Cancel ${comp.name} season ${comp.season}?`,
+      text: `This deletes season ${comp.season} and its ${done} played match${done === 1 ? '' : 'es'}. Their runs and wickets are removed from player stats. Finished seasons and the other competition are not touched${state.store === 'cloud' && state.profile ? `, and only ${state.profile.name}'s profile is affected` : ''}. It can't be undone.`,
+      ok: 'Cancel season', danger: true, typeWord: 'CANCEL',
+      onOk: () => cancelSeasonNow(comp),
+    });
     app.querySelectorAll('[data-play]').forEach(b => b.onclick = () => playFixture(comp, b.dataset.play));
     app.querySelectorAll('[data-sim]').forEach(b => b.onclick = () => simFixtures(comp, [b.dataset.sim]));
     app.querySelectorAll('[data-simn]').forEach(b => b.onclick = () => {
@@ -1300,7 +1316,7 @@
     document.getElementById('tw-start').onclick = async () => {
       const comp = C.applyTransfers(state.db, plan);
       state.transferPlan = null;
-      state.compTab[kind] = kind === 'league' ? 'table' : 'groups';
+      state.compTab[kind] = kind === 'league' ? 'div1' : 'groups';
       state.screen = 'comp';
       render();
       await save();
@@ -1308,6 +1324,19 @@
     };
     document.getElementById('tw-cancel').onclick = () => { state.transferPlan = null; openComp(kind); };
     bindPlayerLinks();
+  }
+
+  async function cancelSeasonNow(comp) {
+    const kind = comp.kind;
+    const res = C.cancelSeason(state.db, comp.id);
+    if (!res) return;
+    if (state.ctx && state.ctx.compId === comp.id) { state.match = null; state.ctx = null; try { localStorage.removeItem(liveKey()); } catch (_) { /* ignore */ } }
+    for (const id of res.removed) state.savedIds.delete(id);
+    delete state.compHash[comp.id];
+    state.pendingDeletes = (state.pendingDeletes || []).concat([comp.id]);
+    state.compTab[kind] = kind === 'league' ? 'div1' : 'groups';
+    openComp(kind);
+    if (await save()) showToast(`Season ${comp.season} cancelled. Start it again whenever you like.`);
   }
 
   function playFixture(comp, fid) {
@@ -1337,14 +1366,27 @@
     await save();
   }
 
-  function standingsTable(kind, rows, qualify) {
+  function standingsTable(kind, rows, qualify, rowClass) {
     return `<div class="table-scroll"><table class="card standings"><thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>L</th><th>T</th><th>Pts</th><th>NRR</th></tr></thead><tbody>
-      ${rows.map((r, i) => `<tr class="${i < qualify ? 'q' : ''}"><td>${i + 1}</td><td><span class="tchip"><span class="dot" style="background:${tcolor(kind, r.id)}"></span><span class="full">${esc(tname(kind, r.id))}</span><span class="abbr">${esc(C.teamOf(state.db, kind, r.id).short)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.t}</td><td><b>${r.pts}</b></td><td>${r.p ? (r.nrr >= 0 ? '+' : '') + r.nrr.toFixed(2) : '–'}</td></tr>`).join('')}
+      ${rows.map((r, i) => `<tr class="${rowClass ? rowClass(i, rows.length) : i < qualify ? 'q' : ''}"><td>${i + 1}</td><td><span class="tchip"><span class="dot" style="background:${tcolor(kind, r.id)}"></span><span class="full">${esc(tname(kind, r.id))}</span><span class="abbr">${esc(C.teamOf(state.db, kind, r.id).short)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.t}</td><td><b>${r.pts}</b></td><td>${r.p ? (r.nrr >= 0 ? '+' : '') + r.nrr.toFixed(2) : '–'}</td></tr>`).join('')}
     </tbody></table></div>`;
   }
   function leagueTableHTML(comp) {
     return standingsTable('league', C.leagueTable(state.db, comp), 4) + `<p class="muted note">Top 4 reach the semifinals. Win 2 pts, tie 1. Ties on points split by net run rate.</p>`;
   }
+  function divisionHTML(comp, d) {
+    const rows = C.divTable(state.db, comp, d);
+    const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
+    const moved = prev && prev.summary ? (d === 1 ? prev.summary.promoted : prev.summary.relegated) : null;
+    const cls = d === 1 ? (i, n) => i < 4 ? 'q' : i >= n - 2 ? 'rel' : '' : (i) => i < 2 ? 'up' : '';
+    const note = d === 1
+      ? '<span class="zone q">Top 4</span> play the semifinals. <span class="zone rel">Bottom 2</span> go down to the 2. Liga next season.'
+      : '<span class="zone up">Top 2</span> go up to the 1. Liga next season.';
+    const intro = moved && moved.length ? `<p class="muted note" style="margin-top:0">${d === 1 ? 'Promoted' : 'Relegated'} last season: <b>${moved.map(esc).join(', ')}</b></p>`
+      : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Bundesliga season: the ${comp.seededBy === 'table' ? 'top 8 of the last Länderliga table' : '8 strongest squads'} start in the 1. Liga.</p>` : '';
+    return intro + standingsTable('league', rows, 0, cls) + `<p class="muted note">${note} Win 2 pts. Level on points: net run rate decides.</p>`;
+  }
+
   function groupsHTML(comp) {
     return `<div class="groups">${Object.keys(comp.groups).map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.groupTable(state.db, comp, g), 2)}</div>`).join('')}</div>
       <p class="muted note">${comp.format === 'v2' ? 'Top 2 in each group reach the second round.' : 'Top 2 in each group reach the Round of 16.'}</p>`;
@@ -1377,7 +1419,7 @@
       const list = st(s);
       return `<div class="bcol"><h3>${label}</h3><div class="bcol-list">${Array.from({ length: n }, (_, i) => koMatchHTML(comp, list[i])).join('')}</div></div>`;
     }).join('');
-    const intro = comp.kind === 'league' ? 'Semifinals: 1st v 4th and 2nd v 3rd after the league stage.'
+    const intro = comp.kind === 'league' ? (comp.format === 'div' ? 'Semifinals: 1st v 4th and 2nd v 3rd of the 1. Liga.' : 'Semifinals: 1st v 4th and 2nd v 3rd after the league stage.')
       : comp.format === 'v2' ? 'Semifinals: winner of second-round Group X v runner-up of Group Y, and winner of Y v runner-up of X.'
       : 'Group winners play runners-up from the neighbouring group.';
     return `<p class="muted note" style="margin-top:0">${intro} A tied knockout is decided on boundary count.</p><div class="bracket">${cols}</div>`;
@@ -1394,7 +1436,7 @@
     // show unfinished rounds first, newest results after
     const open = groups.filter(g => g.list.some(f => !f.result)), closed = groups.filter(g => g.list.every(f => f.result)).reverse();
     return [...open, ...closed].map(g => `<div class="fx-group"><h3>${g.key}</h3>${g.list.map(f => `<div class="fx">
-        <div class="fx-teams">${f.group ? `<span class="gtag">${f.group}</span>` : ''}${chipTeam(kind, f.home)}<span class="vs">v</span>${chipTeam(kind, f.away)}</div>
+        <div class="fx-teams">${f.group ? `<span class="gtag">${f.group}</span>` : f.div ? `<span class="gtag">${f.div}. Liga</span>` : ''}${chipTeam(kind, f.home)}<span class="vs">v</span>${chipTeam(kind, f.away)}</div>
         <div class="fx-res">${f.result ? `<button class="plink" data-match="${f.id}">${esc(f.result.text)}</button>` : `<button class="mini" data-play="${f.id}">Play</button><button class="mini ghost" data-sim="${f.id}">Sim</button>`}</div>
       </div>`).join('')}</div>`).join('');
   }
@@ -1595,7 +1637,7 @@
         <div class="cc-kicker">${c.kind === 'league' ? 'League' : 'Tournament'} · Season ${c.season} · finished ${new Date(c.finishedAt).toLocaleDateString()}</div>
         <h2>${c.name} · Season ${c.season}</h2>
         <div class="hist-top">
-          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div></div></div>
+          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div>${S.promoted ? `<div class="muted" style="font-size:13px">⬆ ${S.promoted.map(esc).join(', ')} · ⬇ ${S.relegated.map(esc).join(', ')}</div>` : ''}</div></div>
           ${S.playerOfSeries ? `<div class="hist-champ pos"><span class="trophy-s">👑</span><div><div class="cc-kicker">Player of the series</div><b><button class="plink" data-player="${S.playerOfSeries.pid}">${esc(S.playerOfSeries.name)}</button></b><div class="muted" style="font-size:13px">${S.playerOfSeries.runs} runs · ${S.playerOfSeries.wkts} wkt${S.playerOfSeries.wkts === 1 ? '' : 's'} · ${S.playerOfSeries.mat} matches</div></div></div>` : ''}
         </div>
         <div class="hist-grid">

@@ -73,7 +73,7 @@
   ];
 
   const COMPS = {
-    league: { name: 'Länderliga', overs: 5, maxOversPerBowler: 1, squad: 7, kind: 'league' },
+    league: { name: 'Länderliga', overs: 5, maxOversPerBowler: 1, squad: 7, kind: 'league', format: 'div' },
     cup: { name: 'Städtepokal', overs: 6, maxOversPerBowler: 1, maxBallsPerBatter: 12, squad: 6, kind: 'cup', format: 'v2' },
   };
   const STAGE_LABEL = { league: 'League', group: 'Group stage', R2: 'Second round', R16: 'Round of 16', QF: 'Quarterfinal', SF: 'Semifinal', F: 'Final' };
@@ -193,11 +193,47 @@
   // A Städtepokal season started in the old format with no finished matches is simply
   // started again in the new format (same season number, nothing is lost).
   function refreshEmptyOldSeason(db) {
-    const comp = db.competitions.find(c => c.kind === 'cup' && c.status !== 'complete');
-    if (!comp || comp.format === 'v2' || comp.fixtures.some(f => f.result)) return false;
+    let changed = false;
+    for (const kind of ['cup', 'league']) {
+      const comp = db.competitions.find(c => c.kind === kind && c.status !== 'complete');
+      if (!comp || comp.format === COMPS[kind].format || comp.fixtures.some(f => f.result)) continue;
+      db.competitions = db.competitions.filter(c => c !== comp);
+      startCompetition(db, kind);
+      changed = true;
+    }
+    return changed;
+  }
+
+  // A season that is still running in an old format can be cancelled: the season and its
+  // matches are deleted and the player stats are recalculated without them.
+  function cancelSeason(db, compId) {
+    const comp = db.competitions.find(c => c.id === compId);
+    if (!comp || comp.status === 'complete') return null;
+    const removed = db.matches.filter(m => m.compId === compId).map(m => m.id);
     db.competitions = db.competitions.filter(c => c !== comp);
-    startCompetition(db, 'cup');
-    return true;
+    db.matches = db.matches.filter(m => m.compId !== compId);
+    db.stats = computeStats(db);
+    return { compId, removed };
+  }
+
+  // ---------------- Länderliga divisions ----------------
+  // Two divisions of 8. First season: the top 8 of a finished old-format Länderliga, or else the
+  // 8 strongest squads, start in the 1. Liga. After that: bottom 2 down, top 2 up.
+  function divisionsFor(db) {
+    const done = db.competitions.filter(c => c.kind === 'league' && c.status === 'complete');
+    const last = done[done.length - 1];
+    if (last && last.format === 'div') {
+      const d1 = divTable(db, last, 1).map(r => r.id), d2 = divTable(db, last, 2).map(r => r.id);
+      return { 1: d1.slice(0, 6).concat(d2.slice(0, 2)), 2: d1.slice(6).concat(d2.slice(2)), from: last.season };
+    }
+    let order;
+    if (last) order = leagueTable(db, last).map(r => r.id);
+    else {
+      const pm = playerMap(db);
+      const str = t => t.players.reduce((s, pid) => s + pm[pid].bat + pm[pid].bowl, 0) / t.players.length;
+      order = db.teams.league.slice().sort((a, b) => str(b) - str(a)).map(t => t.id);
+    }
+    return { 1: order.slice(0, 8), 2: order.slice(8, 16), from: null, seededBy: last ? 'table' : 'strength' };
   }
 
   // Rename a player in ONE profile's history: squads, stats labels, season summaries and the
@@ -350,7 +386,14 @@
     };
     let n = 0;
     const fx = (stage, round, home, away, extra) => ({ id: `${comp.id}-m${++n}`, stage, round, home, away, pitch: pickPitch(r), matchId: null, result: null, ...(extra || {}) });
-    if (kind === 'league') {
+    if (kind === 'league' && cfg.format === 'div') {
+      const dv = divisionsFor(db);
+      comp.divisions = { 1: dv[1], 2: dv[2] };
+      comp.divisionsFrom = dv.from;
+      comp.seededBy = dv.seededBy || null;
+      const rr = { 1: roundRobin(shuffle(dv[1], r)), 2: roundRobin(shuffle(dv[2], r)) };
+      for (let rd = 0; rd < 7; rd++) for (const d of [1, 2]) for (const [a, b] of rr[d][rd]) comp.fixtures.push(fx('league', rd + 1, a, b, { div: d }));
+    } else if (kind === 'league') {
       const ids = shuffle(db.teams.league.map(t => t.id), r);
       roundRobin(ids).forEach((games, ri) => games.forEach(([a, b]) => comp.fixtures.push(fx('league', ri + 1, a, b))));
     } else {
@@ -400,6 +443,7 @@
     return list;
   }
   const leagueTable = (db, comp) => table(db, comp, db.teams.league.map(t => t.id), f => f.stage === 'league');
+  const divTable = (db, comp, d) => table(db, comp, comp.divisions[d], f => f.stage === 'league' && f.div === d);
   const groupTable = (db, comp, g) => table(db, comp, comp.groups[g], f => f.stage === 'group' && f.group === g);
   const round2Table = (db, comp, g) => table(db, comp, comp.groups2[g], f => f.stage === 'R2' && f.group === g);
 
@@ -482,7 +526,7 @@
   function advanceStages(db, comp) {
     if (comp.kind === 'league') {
       if (comp.stage === 'league' && stageDone(comp, 'league')) {
-        const t = leagueTable(db, comp);
+        const t = comp.format === 'div' ? divTable(db, comp, 1) : leagueTable(db, comp);
         addFixture(comp, 'SF', 1, t[0].id, t[3].id, { label: 'Semifinal 1 (1st v 4th)' });
         addFixture(comp, 'SF', 1, t[1].id, t[2].id, { label: 'Semifinal 2 (2nd v 3rd)' });
         comp.stage = 'SF';
@@ -629,6 +673,10 @@
       final: ko(fin), semifinals: comp.fixtures.filter(f => f.stage === 'SF').map(ko),
       topRuns: top('runs', 5), topWkts: top('wkts', 5),
       playerOfSeries: seriesRace(db, comp.id)[0] || null,
+      ...(comp.format === 'div' ? (() => {
+        const d1 = divTable(db, comp, 1).map(r => r.id), d2 = divTable(db, comp, 2).map(r => r.id);
+        return { promoted: d2.slice(0, 2).map(name), relegated: d1.slice(6).map(name), div2Winner: name(d2[0]), div1TableWinner: name(d1[0]) };
+      })() : {}),
     };
   }
 
@@ -731,7 +779,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
+    startCompetition, leagueTable, divTable, divisionsFor, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine,
   };

@@ -522,3 +522,17 @@ table.standings tr.q { background: rgba(232,197,71,.05); }
 .rename-form[hidden] { display: none; }
 .rename-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .rename-row input { flex: 1 1 180px; min-width: 0; background: var(--bg-2); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 10px 12px; font: inherit; }
+
+/* ---------- Divisions ---------- */
+table.standings tr.rel { background: rgba(229,83,61,.07); }
+table.standings tr.rel td:first-child { color: var(--red); font-weight: 700; }
+table.standings tr.up { background: rgba(95,195,168,.08); }
+table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
+.zone { font-weight: 600; }
+.zone.q { color: var(--accent); }
+.zone.rel { color: var(--red); }
+.zone.up { color: var(--teal); }
+.comp-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.champ-name { overflow-wrap: anywhere; hyphens: auto; }
+.champ > div { min-width: 0; }
+@media (max-width: 480px) { .champ-name { font-size: 28px; } }
