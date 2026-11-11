@@ -1510,7 +1510,12 @@
     const recent = db.matches.filter(m => m.innings.some(I => I.batting.some(b => b.pid === pid) || I.dnb.includes(pid) || I.bowling.some(b => b.pid === pid))).slice(-6).reverse();
     const roleName = { bat: 'Batter', ar: 'All-rounder', bowl: 'Bowler' }[p.role];
     modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
-      <h2 style="margin:4px 0">${esc(p.name)}</h2>
+      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
+      <form id="rename-form" class="rename-form" hidden>
+        <label for="rename-in" class="muted" style="font-size:13px">New name${state.store === 'cloud' && state.profile ? ` (only in ${esc(state.profile.name)}'s game)` : ''}</label>
+        <div class="rename-row"><input id="rename-in" maxlength="30" value="${esc(p.name)}" autocomplete="off"><button class="primary" type="submit">Save</button><button class="secondary" type="button" id="rename-cancel">Cancel</button></div>
+        <p class="form-msg" id="rename-msg"></p>
+      </form>
       <p class="muted" style="margin:0 0 12px;font-size:14px">Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}<br>
         Player of the match: <b>${st.all.motm}</b> · Player of the series: <b>${st.all.pos}</b>${seriesTitles(pid)}</p>
       ${teamHistoryHTML(pid)}
@@ -1530,6 +1535,37 @@
     modal.hidden = false;
     document.getElementById('btn-close-modal').onclick = () => { modal.hidden = true; };
     modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
+    const form = document.getElementById('rename-form');
+    document.getElementById('btn-rename').onclick = () => { form.hidden = false; const i = document.getElementById('rename-in'); i.focus(); i.select(); };
+    document.getElementById('rename-cancel').onclick = () => { form.hidden = true; };
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const name = document.getElementById('rename-in').value.trim().replace(/\s+/g, ' ');
+      const msg = document.getElementById('rename-msg');
+      if (!name) { msg.textContent = 'Enter a name.'; return; }
+      if (name === p.name) { form.hidden = true; return; }
+      if (state.db.players.some(x => x.id !== pid && x.name.toLowerCase() === name.toLowerCase())) { msg.textContent = 'Another player already has that name.'; return; }
+      msg.textContent = 'Saving…';
+      if (await renamePlayerHere(pid, name)) openPlayer(pid);
+      else msg.textContent = state.saveMsg;
+    };
+  }
+
+  // Renames only in the open profile; the normal save sends the new names to its own records
+  async function renamePlayerHere(pid, name) {
+    const old = state.db.players.find(x => x.id === pid).name;
+    const changed = C.renamePlayer(state.db, pid, name);
+    const resend = changed.filter(id => state.savedIds.has(id));
+    for (const id of resend) state.savedIds.delete(id);          // re-upload scorecards whose text changed
+    if (!(await save())) {
+      C.renamePlayer(state.db, pid, old);
+      for (const id of resend) state.savedIds.add(id);
+      return false;
+    }
+    if (state.match) for (const t of state.match.teams) for (const pl of t.players) if (pl.pid === pid) pl.name = name;
+    showToast(`${old} is now ${name}`);
+    render();
+    return true;
   }
 
   // ======================= HISTORY =======================

@@ -200,6 +200,38 @@
     return true;
   }
 
+  // Rename a player in ONE profile's history: squads, stats labels, season summaries and the
+  // dismissal text on scorecards ("c Name b Name"). Returns the ids of scorecards that changed.
+  function renamePlayer(db, pid, name) {
+    const p = db.players.find(x => x.id === pid);
+    if (!p) return [];
+    const old = p.name;
+    p.name = name;
+    const changedMatches = [];
+    if (old !== name) {
+      const re = new RegExp(`(^|[^\\w])${old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\w])`, 'g');
+      for (const m of db.matches) {
+        let hit = false;
+        for (const I of m.innings.concat(m.superOvers || [])) for (const b of I.batting) {
+          if (b.how && re.test(b.how)) { re.lastIndex = 0; b.how = b.how.replace(re, (all, pre) => pre + name); hit = true; }
+          re.lastIndex = 0;
+        }
+        if (hit) changedMatches.push(m.id);
+      }
+    }
+    if (db.stats && db.stats[pid]) db.stats[pid].name = name;
+    for (const comp of db.competitions) {
+      const S = comp.summary; if (!S) continue;
+      for (const x of (S.topRuns || []).concat(S.topWkts || [])) if (x.pid === pid) x.name = name;
+      if (S.playerOfSeries && S.playerOfSeries.pid === pid) S.playerOfSeries.name = name;
+      for (const k of [S.final, ...(S.semifinals || [])].filter(Boolean)) {
+        const m = db.matches.find(x => x.id === k.id);
+        if (m && m.motm === pid) k.motm = name;
+      }
+    }
+    return changedMatches;
+  }
+
   // ---------------- Lookups ----------------
   const playerMap = db => { const m = {}; for (const p of db.players) m[p.id] = p; return m; };
   function teamOf(db, kind, id) {
@@ -699,7 +731,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers,
+    startCompetition, leagueTable, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine,
   };

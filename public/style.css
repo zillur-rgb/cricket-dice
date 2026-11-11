@@ -517,3 +517,8 @@ table.standings tr.q { background: rgba(232,197,71,.05); }
 .tw-label.new { color: var(--teal); }
 .tw-left { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px; }
 .team-history { display: grid; gap: 4px; font-size: 13px; margin: 0 0 12px; }
+.name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rename-form { display: grid; gap: 6px; margin: 4px 0 12px; }
+.rename-form[hidden] { display: none; }
+.rename-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.rename-row input { flex: 1 1 180px; min-width: 0; background: var(--bg-2); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 10px 12px; font: inherit; }
