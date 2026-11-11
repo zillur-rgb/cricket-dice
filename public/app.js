@@ -573,6 +573,34 @@
     document.getElementById('btn-next').onclick = () => beginInnings(1 - I.bat);
   }
 
+  function awardCard(kicker, name, color, team, line, pid, big) {
+    const nameHTML = pid && pmap()[pid] ? `<button class="plink" data-player="${pid}">${esc(name)}</button>` : esc(name);
+    return `<div class="award ${big ? 'big' : ''}">
+      <div class="award-icon">${big ? '👑' : '⭐'}</div>
+      <div><div class="cc-kicker">${kicker}</div>
+      <div class="award-name">${nameHTML}</div>
+      <div class="muted award-line"><span class="dot" style="background:${color}"></span>${esc(team)} · ${esc(line)}</div></div>
+    </div>`;
+  }
+
+  function awardsHTML() {
+    const m = state.match;
+    const pom = C.playerOfMatch(m);
+    let html = awardCard('Player of the match', pom.name, pom.color, pom.team, pom.line, pom.pid, false);
+    const comp = state.ctx ? compById(state.ctx.compId) : null;
+    if (comp && comp.status === 'complete' && comp.summary && comp.summary.playerOfSeries && fixtureById(state.ctx).stage === 'F') {
+      html += seriesAwardHTML(comp);
+    }
+    return `<div class="awards">${html}</div>`;
+  }
+
+  function seriesAwardHTML(comp) {
+    const s = comp.summary.playerOfSeries;
+    const p = pmap()[s.pid];
+    const t = C.teamOf(state.db, comp.kind, comp.kind === 'league' ? p.state : p.city);
+    return awardCard(`Player of the series · ${comp.name} S${comp.season}`, s.name, t ? t.color : '#999', t ? t.name : '', `${s.runs} runs · ${s.wkts} wkt${s.wkts === 1 ? '' : 's'} · ${s.mat} matches`, s.pid, true);
+  }
+
   function renderResult() {
     const m = state.match, r = m.result;
     const tie = r.winner === null;
@@ -582,6 +610,7 @@
         <div class="trophy">${tie ? '🤝' : '🏆'}</div>
         <h1>${tie ? 'It\'s a tie!' : `${esc(w.name)} win!`}</h1>
         <h2 class="muted">${esc(r.text)}</h2>
+        ${awardsHTML()}
         ${state.ctx ? `<p class="muted" style="margin:0">${esc(state.saveMsg)}</p>
         <div class="btn-row"><button class="primary" id="btn-back-comp">Back to ${esc(compById(state.ctx.compId).name)}</button></div>`
         : `<div class="btn-row"><button class="primary" id="btn-again">Rematch</button><button class="secondary" id="btn-new">New setup</button></div>`}
@@ -591,6 +620,7 @@
         <div class="panel">${scorecardHTML(1)}</div>
       </div>
     </section>`;
+    bindPlayerLinks();
     if (state.ctx) {
       document.getElementById('btn-back-comp').onclick = () => { const k = compById(state.ctx.compId).kind; state.match = null; state.ctx = null; openComp(k); };
       return;
@@ -958,6 +988,7 @@
         <div class="trophy">🏆</div>
         <div><div class="cc-kicker">Season ${comp.season} champions</div><h2 class="champ-name">${esc(comp.summary.champion)}</h2>
         <div class="muted">${esc(comp.summary.final.result)} · Player of the final: ${esc(comp.summary.final.motm)}</div></div>
+        ${comp.summary.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
         <button class="primary" id="btn-new-season">Start season ${comp.season + 1}</button>
       </div>`;
     } else {
@@ -982,7 +1013,12 @@
     else if (tab === 'fixtures') body = fixturesHTML(comp);
     else if (tab === 'leaders') {
       const st = C.competitionStats(db, comp.id);
-      body = `<div class="leaders">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>`;
+      const race = C.seriesRace(db, comp.id).slice(0, 5);
+      body = `<div class="lead race"><h3>${comp.status === 'complete' ? 'Player of the series' : 'Player of the series race'}</h3>
+        ${race.length ? `<ol>${race.map(r => `<li><button class="plink" data-player="${r.pid}">${esc(r.name)}</button><span class="race-sub">${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.motm} PoM</span><span class="num">${r.points} <small>pts</small></span></li>`).join('')}</ol>`
+          : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
+        <p class="muted note">Points add up each player's match performances: runs, strike rate, wickets and economy.</p></div>
+        <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>`;
     } else body = squadsHTML(kind);
 
     app.innerHTML = `<section class="comp">
@@ -1035,7 +1071,10 @@
       if (state.ctx && state.ctx.fixtureId === id && liveMatchInProgress()) continue;
       C.recordMatch(state.db, comp.id, f.id, C.simulateFixture(state.db, comp, f), 'sim');
     }
-    if (comp.status === 'complete') state.compTab[comp.kind] = comp.kind === 'league' ? 'playoffs' : 'knockout';
+    if (comp.status === 'complete') {
+      state.compTab[comp.kind] = comp.kind === 'league' ? 'playoffs' : 'knockout';
+      if (comp.summary.playerOfSeries) setTimeout(() => showToast(`Player of the series: ${comp.summary.playerOfSeries.name}`), 2200);
+    }
     render();
     await save();
   }
@@ -1120,7 +1159,7 @@
     }).join('');
     modalCard.innerHTML = `<div class="cc-kicker">${esc(m.compName)} S${m.season} · ${esc(C.STAGE_LABEL[m.stage])}${m.group ? ' ' + m.group : ''} · ${m.mode === 'played' ? 'played' : 'simulated'}</div>
       <h2 style="margin:4px 0 2px">${esc(m.result)}</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Player of the match: <button class="plink" data-player="${m.motm}">${esc(pm[m.motm].name)}</button> · ${esc(E.PITCHES[m.pitch].label)} pitch</p>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Player of the match: <button class="plink" data-player="${m.motm}">${esc(pm[m.motm].name)}</button> (${esc(C.figuresLine(m.innings, m.motm))}) · ${esc(E.PITCHES[m.pitch].label)} pitch</p>
       ${inns}
       <button class="primary" id="btn-close-modal">Close</button>`;
     modal.hidden = false;
@@ -1131,7 +1170,7 @@
   // ======================= PLAYERS =======================
   const PL_COLS = [
     ['name', 'Player'], ['mat', 'Mat'], ['runs', 'Runs'], ['balls', 'Balls'], ['hs', 'HS'], ['avg', 'Avg'], ['sr', 'SR'], ['f4', '4s'], ['s6', '6s'],
-    ['wkts', 'Wkts'], ['overs', 'Ov'], ['econ', 'Econ'], ['best', 'Best'], ['motm', 'PoM'],
+    ['wkts', 'Wkts'], ['overs', 'Ov'], ['econ', 'Econ'], ['best', 'Best'], ['motm', 'PoM'], ['pos', 'PoS'],
   ];
   function renderPlayers() {
     const db = state.db, pm = pmap();
@@ -1160,7 +1199,7 @@
         <div class="table-scroll"><table class="card players-table"><thead><tr>${PL_COLS.map(([k, l]) => `<th class="${k === key ? 'sorted' : ''}"><button data-sort="${k}">${l}</button></th>`).join('')}</tr></thead><tbody>
           ${rows.map(({ p, s }) => `<tr><td><button class="plink" data-player="${p.id}">${esc(p.name)}</button><span class="how">${esc(tname('cup', p.city))}${p.state ? ' · ' + esc(C.teamOf(db, 'league', p.state).short) : ''}</span></td>
             <td>${s.mat}</td><td><b>${s.runs}</b></td><td>${s.balls}</td><td>${s.hsText}</td><td>${s.avg}</td><td>${s.sr}</td><td>${s.f4}</td><td>${s.s6}</td>
-            <td><b>${s.wkts}</b></td><td>${s.overs}</td><td>${s.econ}</td><td>${s.best}</td><td>${s.motm}</td></tr>`).join('')}
+            <td><b>${s.wkts}</b></td><td>${s.overs}</td><td>${s.econ}</td><td>${s.best}</td><td>${s.motm}</td><td>${s.pos}</td></tr>`).join('')}
         </tbody></table></div>
       </div>
     </section>`;
@@ -1175,6 +1214,11 @@
     (rootEl || app).querySelectorAll('[data-player]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.player); });
   }
 
+  function seriesTitles(pid) {
+    const won = state.db.competitions.filter(c => c.summary && c.summary.playerOfSeries && c.summary.playerOfSeries.pid === pid).map(c => `${c.name} S${c.season}`);
+    return won.length ? ` (${esc(won.join(', '))})` : '';
+  }
+
   function openPlayer(pid) {
     const db = state.db, p = pmap()[pid], st = db.stats[pid];
     const row = (label, s) => { s = C.fmtStats(s); return `<tr><td>${label}</td><td>${s.mat}</td><td>${s.inn}</td><td><b>${s.runs}</b></td><td>${s.balls}</td><td>${s.hsText}</td><td>${s.avg}</td><td>${s.sr}</td><td>${s.f4}</td><td>${s.s6}</td><td>${s.thirties}/${s.fifties}</td></tr>`; };
@@ -1183,7 +1227,8 @@
     const roleName = { bat: 'Batter', ar: 'All-rounder', bowl: 'Bowler' }[p.role];
     modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
       <h2 style="margin:4px 0">${esc(p.name)}</h2>
-      <p class="muted" style="margin:0 0 12px;font-size:14px">Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}</p>
+      <p class="muted" style="margin:0 0 12px;font-size:14px">Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}<br>
+        Player of the match: <b>${st.all.motm}</b> · Player of the series: <b>${st.all.pos}</b>${seriesTitles(pid)}</p>
       <h3>Batting</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Mat</th><th>Inn</th><th>Runs</th><th>Balls</th><th>HS</th><th>Avg</th><th>SR</th><th>4s</th><th>6s</th><th>30/50</th></tr></thead><tbody>
         ${row('Career', st.all)}${row('Länderliga', st.league)}${row('Städtepokal', st.cup)}</tbody></table></div>
@@ -1228,7 +1273,10 @@
       return `<div class="panel hist">
         <div class="cc-kicker">${c.kind === 'league' ? 'League' : 'Tournament'} · Season ${c.season} · finished ${new Date(c.finishedAt).toLocaleDateString()}</div>
         <h2>${c.name} · Season ${c.season}</h2>
-        <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div></div></div>
+        <div class="hist-top">
+          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div></div></div>
+          ${S.playerOfSeries ? `<div class="hist-champ pos"><span class="trophy-s">👑</span><div><div class="cc-kicker">Player of the series</div><b><button class="plink" data-player="${S.playerOfSeries.pid}">${esc(S.playerOfSeries.name)}</button></b><div class="muted" style="font-size:13px">${S.playerOfSeries.runs} runs · ${S.playerOfSeries.wkts} wkt${S.playerOfSeries.wkts === 1 ? '' : 's'} · ${S.playerOfSeries.mat} matches</div></div></div>` : ''}
+        </div>
         <div class="hist-grid">
           ${ko(S.final)}${S.semifinals.map(ko).join('')}
           <div class="hk"><div class="cc-kicker">Top run scorers</div>${lst(S.topRuns, 'runs')}</div>

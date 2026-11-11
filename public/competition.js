@@ -283,15 +283,7 @@
       else { w = Math.random() < 0.5 ? i1.team : i2.team; text = `Scores level. ${teamOf(db, kind, w).name} win the bowl-out`; }
       winner = w; superOverTie = true; tie = false;
     }
-    // Player of the match: runs + 20 per wicket + bonus for winners
-    const score = {};
-    for (const I of innings) {
-      for (const b of I.batting) score[b.pid] = (score[b.pid] || 0) + b.r + (b.b && b.r / b.b > 1.5 ? 5 : 0);
-      for (const b of I.bowling) score[b.pid] = (score[b.pid] || 0) + b.w * 20 - Math.max(0, b.r - b.balls * 1.3) * 0.5;
-    }
-    const winTeam = winner ? match.teams.find(t => t.id === winner) : null;
-    if (winTeam) for (const p of winTeam.players) score[p.pid] = (score[p.pid] || 0) + 8;
-    const motm = Object.entries(score).sort((a, b) => b[1] - a[1])[0][0];
+    const motm = bestOf(impactScores(innings, winner)).pid;
 
     const runs = {}, ballsNRR = {};
     for (const I of innings) {
@@ -366,6 +358,87 @@
     }
   }
 
+  // ---------------- Player of the match / series ----------------
+  // Impact score per player for one match (works on saved scorecards)
+  //   batting: runs, plus a bonus/penalty for strike rate (par = 7.5 runs an over)
+  //   bowling: 22 per wicket, plus a bonus/penalty for economy (par = 8 an over), 4 per maiden
+  //   +5 for every player on the winning side (only a tie-breaker; a big losing performance still wins)
+  function impactScores(innings, winner) {
+    const score = {}, team = {};
+    const add = (pid, v) => { score[pid] = (score[pid] || 0) + v; };
+    for (const I of innings) {
+      for (const b of I.batting) { team[b.pid] = I.team; add(b.pid, b.r + Math.max(-10, Math.min(15, (b.r - b.b * 1.25) * 0.5))); }
+      for (const x of I.dnb) { team[x] = I.team; add(x, 0); }
+    }
+    for (const I of innings) {
+      const bowlTeam = innings.map(J => J.team).find(t => t !== I.team) || null;
+      for (const w of I.bowling) {
+        if (bowlTeam) team[w.pid] = team[w.pid] || bowlTeam;
+        add(w.pid, w.w * 22 + (w.balls * 8 / 6 - w.r) * 0.6 + (w.m || 0) * 4);
+      }
+    }
+    if (winner) for (const pid in team) if (team[pid] === winner) add(pid, 5);
+    return { score, team };
+  }
+
+  function bestOf({ score, team }) {
+    const [pid, val] = Object.entries(score).sort((a, b) => b[1] - a[1])[0] || [];
+    return { pid, team: team[pid], score: val };
+  }
+
+  // "54 (31) & 2/14 (2)" style figures for one player in one match
+  function figuresLine(innings, pid) {
+    const parts = [];
+    for (const I of innings) {
+      const b = I.batting.find(x => x.pid === pid);
+      if (b) parts.push(`${b.r}${b.out ? '' : '*'} (${b.b})`);
+    }
+    for (const I of innings) {
+      const w = I.bowling.find(x => x.pid === pid);
+      if (w) parts.push(`${w.w}/${w.r} (${oversOf(w.balls)} ov)`);
+    }
+    return parts.join(' & ') || 'did not bat or bowl';
+  }
+  const oversOf = balls => `${Math.floor(balls / 6)}${balls % 6 ? '.' + (balls % 6) : ''}`;
+
+  // Same shape as a saved scorecard, built from a live engine match (used for friendlies)
+  function inningsOf(match) {
+    return match.innings.map(I => {
+      const bt = match.teams[I.bat], bw = match.teams[I.bowl];
+      const key = (t, i) => t.players[i].pid || `${t.id}:${i}`;
+      return {
+        team: bt.id,
+        batting: I.batters.filter(b => b.batted).map(b => ({ pid: key(bt, b.idx), r: b.runs, b: b.balls, out: !!b.out })),
+        dnb: I.batters.filter(b => !b.batted).map(b => key(bt, b.idx)),
+        bowling: Object.entries(I.bowlers).map(([i, s]) => ({ pid: key(bw, i), balls: s.balls, r: s.runs, w: s.wkts, m: s.maidens || 0 })),
+      };
+    });
+  }
+
+  // Player of the match for any live match (competition or friendly)
+  function playerOfMatch(match) {
+    const innings = inningsOf(match);
+    const winner = match.result && match.result.winner !== null ? match.teams[match.result.winner].id : null;
+    const best = bestOf(impactScores(innings, winner));
+    const t = match.teams.find(x => x.id === best.team);
+    const p = t.players.find((pl, i) => (pl.pid || `${t.id}:${i}`) === best.pid);
+    return { pid: best.pid, name: p.name, team: t.name, color: t.color, line: figuresLine(innings, best.pid) };
+  }
+
+  // Player of the series: highest total impact over the season
+  function seriesRace(db, compId) {
+    const total = {}, mats = {};
+    for (const m of db.matches.filter(x => x.compId === compId)) {
+      const { score } = impactScores(m.innings, m.winner);
+      for (const pid in score) { total[pid] = (total[pid] || 0) + score[pid]; mats[pid] = (mats[pid] || 0) + 1; }
+    }
+    const st = competitionStats(db, compId), pm = playerMap(db);
+    return Object.entries(total).sort((a, b) => b[1] - a[1]).map(([pid, pts]) => ({
+      pid, name: pm[pid] ? pm[pid].name : pid, points: Math.round(pts), mat: mats[pid],
+      runs: st[pid] ? st[pid].runs : 0, wkts: st[pid] ? st[pid].wkts : 0, motm: st[pid] ? st[pid].motm : 0,
+    }));
+  }
+
   function seasonSummary(db, comp, fin) {
     const pm = playerMap(db);
     const st = competitionStats(db, comp.id);
@@ -377,13 +450,14 @@
       champion: name(winnerOf(fin)), runnerUp: name(loserOf(fin)),
       final: ko(fin), semifinals: comp.fixtures.filter(f => f.stage === 'SF').map(ko),
       topRuns: top('runs', 5), topWkts: top('wkts', 5),
+      playerOfSeries: seriesRace(db, comp.id)[0] || null,
     };
   }
 
   // ---------------- Career stats ----------------
   function blank() {
     return { mat: 0, inn: 0, no: 0, runs: 0, balls: 0, f4: 0, s6: 0, hs: 0, hsNo: false, thirties: 0, fifties: 0, hundreds: 0, ducks: 0,
-      ballsBowled: 0, runsConceded: 0, wkts: 0, maidens: 0, dots: 0, bestW: 0, bestR: 0, fourW: 0, motm: 0 };
+      ballsBowled: 0, runsConceded: 0, wkts: 0, maidens: 0, dots: 0, bestW: 0, bestR: 0, fourW: 0, motm: 0, pos: 0 };
   }
   function addMatch(stats, m, pid) {
     let played = false;
@@ -416,6 +490,11 @@
       const pids = new Set();
       for (const I of m.innings) { I.batting.forEach(b => pids.add(b.pid)); I.dnb.forEach(x => pids.add(x)); I.bowling.forEach(b => pids.add(b.pid)); }
       for (const pid of pids) { if (!out[pid]) continue; addMatch(out[pid].all, m, pid); addMatch(out[pid][m.comp], m, pid); }
+    }
+    // Player of the series awards
+    for (const comp of db.competitions || []) {
+      const pos = comp.summary && comp.summary.playerOfSeries;
+      if (pos && out[pos.pid]) { out[pos.pid].all.pos++; out[pos.pid][comp.kind].pos++; }
     }
     return out;
   }
@@ -476,6 +555,7 @@
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
     startCompetition, leagueTable, groupTable, recordMatch, computeStats, competitionStats,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
+    impactScores, playerOfMatch, seriesRace, figuresLine,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketComp = api;

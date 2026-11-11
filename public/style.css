@@ -447,3 +447,21 @@ table.standings tr.q { background: rgba(232,197,71,.05); }
   .action-row.two { grid-template-columns: 1fr 1fr; }
   .action-row.two .primary { grid-column: auto; }
 }
+
+/* ---------- Awards ---------- */
+.awards { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 4px 0 6px; }
+.award { display: flex; gap: 12px; align-items: center; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; min-width: 0; max-width: 100%; }
+.award.big { border-color: rgba(232,197,71,.55); background: linear-gradient(135deg, rgba(232,197,71,.14), var(--panel-2)); }
+.award-icon { font-size: 28px; }
+.award-name { font-family: var(--display); font-weight: 700; font-size: 24px; text-transform: uppercase; line-height: 1.1; }
+.award-name .plink { text-decoration: none; }
+.award.big .award-name { color: var(--accent); }
+.award-line { font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.award-line .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.champ-pos { flex-basis: 100%; }
+.champ-pos .award { display: inline-flex; }
+.race ol { margin-top: 8px; }
+.race li { flex-wrap: wrap; }
+.race-sub { font-size: 12px; color: var(--muted); }
+.hist-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.hist-champ.pos { background: rgba(79,163,224,.08); border-color: rgba(79,163,224,.3); }
