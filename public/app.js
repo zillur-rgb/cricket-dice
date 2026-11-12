@@ -365,7 +365,7 @@
       </div>
       <div class="ml-right">
         <div class="ml-label">At the crease</div>
-        ${i.done ? '' : bat(i.striker) + bat(i.nonStriker)}
+        ${i.done ? '' : bat(i.striker) + (i.nonStriker !== null ? bat(i.nonStriker) : '<div class="ml-row"><span class="lastman">Last man · bats alone</span></div>')}
         <div class="ml-label">Bowling</div>
         ${bowler}
         <div class="this-over sm">${tokens || '<span class="muted" style="font-size:12px">New over</span>'}</div>
@@ -506,7 +506,7 @@
       return `<span class="tok ${cls}">${esc(t)}</span>`;
     }).join('');
     return `<div class="panel players">
-      <div><h3>At the crease</h3>${i.done ? '' : bRow(i.striker) + bRow(i.nonStriker)}</div>
+      <div><h3>At the crease</h3>${i.done ? '' : bRow(i.striker) + (i.nonStriker !== null ? bRow(i.nonStriker) : '<div class="pl-row"><span class="lastman">Last man · bats alone, always on strike</span></div>')}</div>
       <div><h3>This over</h3><div class="this-over">${tokens || '<span class="muted" style="font-size:13px">New over</span>'}</div></div>
     </div>`;
   }
@@ -764,12 +764,13 @@
       <ul>
         <li><b>Bowling plan</b>: Tight line cuts boundaries and wickets. Attack hunts wickets but leaks runs and more wides.</li>
         <li><b>Skill duel</b>: batter's batting rating vs bowler's bowling rating. Tailenders struggle against strike bowlers.</li>
-        <li><b>Getting set</b>: the first 5 balls are riskier. After 25 balls a batter is harder to get out and scores faster.</li>
+        <li><b>Getting set</b>: the first 2 balls are riskier. After 10 balls a batter is set: harder to get out and scores faster.</li>
         <li><b>Phase</b>: the powerplay boosts fours. Death overs boost sixes and wickets.</li>
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
+        <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. Every player bowls one over, and a batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
-        <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: only a run-out can get you.</li>
+        <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out).</li>
       </ul>
       <p><b>Keys:</b> Q / W / E bowling plan · 1 / 2 / 3 shot · Space bowls.</p>
       <div style="margin-top:14px"><button class="primary" id="btn-close-rules">Got it</button></div>
@@ -1157,7 +1158,7 @@
     const cfg = C.COMPS[kind];
     const comp = C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
     const blurb = kind === 'league'
-      ? `16 German states in two divisions · 7 players each · ${cfg.overs} overs · 2 up, 2 down every season`
+      ? `16 German states in two divisions · 7 players each · ${cfg.overs} overs · last man stands · 2 up, 2 down every season`
       : `20 German cities · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`;
     let status = '<span class="muted">No season played yet</span>';
     if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
@@ -1214,8 +1215,8 @@
     if (!comp) {
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
-          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of the 1. Liga play the semifinals and the final. After each season the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga come up.`
-          : `20 German cities, 6 players each, ${cfg.overs}-over matches. Everyone bowls one over, and a batter retires not out after ${cfg.maxBallsPerBatter} balls. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
+          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of the 1. Liga play the semifinals and the final. After each season the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga come up. Last man stands: when everyone else is out, the last batter bats on alone.`
+          : `20 German cities, 6 players each, ${cfg.overs}-over matches. Everyone bowls one over, and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
         <div class="panel" style="margin-top:16px">${squadsHTML(kind)}</div>

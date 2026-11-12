@@ -565,3 +565,4 @@ table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
 }
 .ml-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: -3px; text-align: right; }
 .ml-small .secondary { white-space: nowrap; font-size: 12px; }
+.lastman { font-size: 11px; font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; color: var(--o-6); }
