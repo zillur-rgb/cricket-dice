@@ -9,6 +9,7 @@
 
   const state = {
     screen: 'home',
+    homeTab: 'recent',  // home leaderboard: last 3 matches by default
     db: null,           // league/tournament history (saved to data/history.json)
     store: 'loading',   // 'server' | 'local' | 'loading'
     saveMsg: '',
@@ -1183,6 +1184,66 @@
     return `<div class="lead"><h3>${label}</h3><ol>${rows.map(([pid, s]) => `<li><button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button><span class="num">${key === 'wkts' ? `${s.wkts} <small>wkts</small>` : `${s.runs} <small>runs</small>`}</span></li>`).join('')}</ol></div>`;
   }
 
+  // ---------- Home leaderboards ----------
+  const HOME_BOARDS = [
+    ['recent', 'Last 3 matches'],
+    ['league-now', 'Länderliga · current'],
+    ['league-all', 'Länderliga · all time'],
+    ['cup-now', 'Städtepokal · current'],
+    ['cup-all', 'Städtepokal · all time'],
+  ];
+
+  function homeBoardHTML(key) {
+    const db = state.db;
+    if (key === 'recent') return recentMatchesHTML();
+    const [kind, when] = key.split('-');
+    const name = C.COMPS[kind].name;
+    if (when === 'all') {
+      const st = Object.fromEntries(Object.entries(db.stats).map(([k, v]) => [k, v[kind]]));
+      const n = db.competitions.filter(x => x.kind === kind).length;
+      return `<p class="muted lb-note">${name}, all ${n} season${n === 1 ? '' : 's'}</p>
+        <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs')}${leadersHTML(st, 'wkts', 5, 'Most wickets')}</div>`;
+    }
+    const comp = C.activeComp(db, kind) || C.lastComp(db, kind);
+    if (!comp) return `<p class="muted lb-note">No ${name} season yet.</p>`;
+    const st = C.competitionStats(db, comp.id);
+    return `<p class="muted lb-note">${name} · Season ${comp.season}${comp.status === 'complete' ? ' (finished)' : ''}</p>
+      <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs')}${leadersHTML(st, 'wkts', 5, 'Most wickets')}</div>`;
+  }
+
+  function recentMatchesHTML() {
+    const db = state.db, pm = pmap();
+    const list = db.matches.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(-3).reverse();
+    if (!list.length) return '<p class="muted lb-note">No matches played yet.</p>';
+    const nm = pid => esc(pm[pid] ? pm[pid].name : pid);
+    return `<div class="recent3">${list.map(m => {
+      const T = id => C.teamOf(db, m.comp, id) || { name: id, short: id, color: '#888' };
+      const score = I => `<div class="r3-team"><span class="dot" style="background:${T(I.team).color}"></span><span class="r3-name">${esc(T(I.team).name)}</span><span class="num">${I.runs}/${I.wkts} <small>(${E.oversStr(I.balls)})</small></span></div>`;
+      let bat = null, bowl = null;
+      for (const I of m.innings) {
+        for (const b of I.batting) if (!bat || b.r > bat.r || (b.r === bat.r && b.b < bat.b)) bat = b;
+        for (const b of I.bowling) if (!bowl || b.w > bowl.w || (b.w === bowl.w && b.r < bowl.r)) bowl = b;
+      }
+      const stage = C.STAGE_LABEL[m.stage] || m.stage;
+      return `<div class="r3">
+        <div class="cc-kicker">${esc(m.compName)} · S${m.season} · ${esc(stage)}</div>
+        ${m.innings.map(score).join('')}
+        <div class="r3-result">${esc(m.result)}</div>
+        ${m.motm ? `<div class="r3-mom"><span class="r3-lbl">Player of the match</span><button class="plink" data-player="${m.motm}">${nm(m.motm)}</button><span class="num">${esc(C.figuresLine(m.innings, m.motm))}</span></div>` : ''}
+        <div class="r3-best">
+          ${bat ? `<div><span class="r3-lbl">Most runs</span><button class="plink" data-player="${bat.pid}">${nm(bat.pid)}</button> <span class="num">${bat.r}${bat.out ? '' : '*'} (${bat.b})</span></div>` : ''}
+          ${bowl ? `<div><span class="r3-lbl">Most wickets</span><button class="plink" data-player="${bowl.pid}">${nm(bowl.pid)}</button> <span class="num">${bowl.w}/${bowl.r}</span></div>` : ''}
+        </div>
+        <button class="plink r3-card" data-match="${m.id}">Scorecard →</button>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  function bindHomeBoard(el) {
+    bindPlayerLinks(el);
+    el.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
+  }
+
   function renderHome() {
     const db = state.db;
     const all = Object.fromEntries(Object.entries(db.stats).map(([k, v]) => [k, v.all]));
@@ -1196,11 +1257,19 @@
       ${liveMatchInProgress() ? `<div class="panel resume"><div><b>Match in progress</b><div class="muted">${esc(state.match.teams[0].name)} vs ${esc(state.match.teams[1].name)}</div></div><button class="primary" id="btn-resume">Resume</button></div>` : ''}
       <div class="comp-grid">${compCardHTML('league')}${compCardHTML('cup')}</div>
       <div class="panel">
-        <div class="inn-title"><h2>Career leaders</h2><span class="muted" style="font-size:13px">${played} match${played === 1 ? '' : 'es'} played</span></div>
-        <div class="leaders">${leadersHTML(all, 'runs', 5, 'Most runs')}${leadersHTML(all, 'wkts', 5, 'Most wickets')}</div>
+        <div class="inn-title"><h2>Leaderboards</h2><span class="muted" style="font-size:13px">${played} match${played === 1 ? '' : 'es'} played</span></div>
+        <div class="lb-tabs" role="tablist">${HOME_BOARDS.map(([k, l]) => `<button class="lb-tab ${state.homeTab === k ? 'active' : ''}" data-hb="${k}" role="tab" aria-selected="${state.homeTab === k}">${l}</button>`).join('')}</div>
+        <div id="home-board">${homeBoardHTML(state.homeTab)}</div>
         <div style="margin-top:12px"><button class="secondary" data-go="players">All player stats →</button></div>
       </div>
     </section>`;
+    app.querySelectorAll('[data-hb]').forEach(b => b.onclick = () => {
+      state.homeTab = b.dataset.hb;
+      app.querySelectorAll('[data-hb]').forEach(x => { x.classList.toggle('active', x === b); x.setAttribute('aria-selected', x === b); });
+      const box = document.getElementById('home-board'); box.innerHTML = homeBoardHTML(state.homeTab);
+      bindHomeBoard(box);
+    });
+    bindHomeBoard(document.getElementById('home-board'));
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
     const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
