@@ -591,3 +591,7 @@ table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
 @media (max-width: 860px) { .recent3 { grid-template-columns: minmax(0, 1fr); } }
 .toss-pick { color: var(--accent); }
 .toss-auto { font-size: 13px; }
+/* Bowl button on the right (easier to reach with the right thumb), batters and bowler on the left */
+.mlive { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+.mlive .ml-left { order: 2; }
+.mlive .ml-right { order: 1; border-left: 0; padding-left: 0; border-right: 1px solid var(--line); padding-right: 12px; }
