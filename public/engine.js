@@ -143,12 +143,32 @@
     return match.toss;
   }
 
-  // Toss winner decides; for CPU we pick based on pitch
-  function cpuTossDecision(match) {
-    if (match.pitch === 'dusty') return 'bat';    // bat before it turns more
-    if (match.pitch === 'green') return 'bowl';
-    return rand() < 0.55 ? 'bowl' : 'bat';
+  // The toss winner decides from the pitch and its own squad. Returns 'bat' or 'bowl'
+  // (cpuTossDecision) or { choice, reason } (tossDecision).
+  function tossDecision(match, winnerIdx) {
+    const w = winnerIdx === undefined ? (match.toss ? match.toss.winner : 0) : winnerIdx;
+    const ps = match.teams[w].players;
+    const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+    const top = (key, n, f) => avg(ps.filter(f || (() => true)).map(p => p[key]).sort((a, b) => b - a).slice(0, n));
+    const nBowl = Math.min(match.maxOversPerBowler ? Math.ceil(match.overs / match.maxOversPerBowler) : 4, ps.length);
+    const batQ = top('bat', 4), bowlQ = top('bowl', nBowl, p => p.type);
+    const pace = ps.filter(p => p.type === 'pace').length, spin = ps.filter(p => p.type === 'spin').length;
+    switch (match.pitch) {
+      case 'green':
+        if (pace >= 2) return { choice: 'bowl', reason: `Green top: ${pace} seamers get first use of the moisture` };
+        return { choice: 'bat', reason: 'Green top, but only one seamer in the side, so they bat first' };
+      case 'dusty':
+        if (spin >= 2) return { choice: 'bat', reason: `Dusty turner: bat now, then let ${spin} spinners use it as it wears` };
+        return { choice: 'bat', reason: 'Dusty turner: bat first before the ball starts to grip' };
+      case 'flat':
+        return { choice: 'bowl', reason: 'Flat road: no total is safe here, so they chase' };
+      default:
+        if (batQ - bowlQ > 6) return { choice: 'bat', reason: 'Good pitch and a strong batting line-up: set a big total' };
+        if (bowlQ - batQ > 6) return { choice: 'bowl', reason: 'Good pitch and a strong bowling attack: bowl first and chase' };
+        return { choice: 'bowl', reason: 'Good pitch, balanced side: chase and know the target' };
+    }
   }
+  function cpuTossDecision(match, winnerIdx) { return tossDecision(match, winnerIdx).choice; }
 
   // overs in this innings: 1 in a Super Over, otherwise the match length
   function ovs(match, inn) { return inn && inn.superOver ? 1 : match.overs; }
@@ -687,7 +707,7 @@
 
   const api = {
     BAT_TABLES, BOWL_PLANS, PITCHES, PRESET_TEAMS,
-    createMatch, doToss, cpuTossDecision, startInnings, cur,
+    createMatch, doToss, cpuTossDecision, tossDecision, startInnings, cur,
     eligibleBowlers, needsBowler, setBowler, cpuChooseBowler,
     ballProbabilities, bowlBall, cpuBatMode, cpuBowlPlan, startNextInnings,
     oversStr, runRate, setRandom, mulberry32, phaseOf,

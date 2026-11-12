@@ -145,8 +145,11 @@
       body = `<h2>…</h2>`;
     } else {
       const w = team(t.winner);
-      body = `<h2>It's ${t.coin}! ${esc(w.name)} won the toss.</h2><p class="muted">${esc(E.PITCHES[state.match.pitch].note)}.</p>
-        <div class="btn-row"><button class="primary" data-choose="bat">${esc(w.short)} bat first</button><button class="primary" data-choose="bowl">${esc(w.short)} bowl first</button></div>`;
+      const d = E.tossDecision(state.match, t.winner);
+      body = `<h2>It's ${t.coin}! ${esc(w.name)} won the toss and chose to <span class="toss-pick">${d.choice} first</span>.</h2>
+        <p class="muted">${esc(d.reason)}.</p>
+        <div class="btn-row"><button class="primary" data-choose="${d.choice}">Start match</button></div>
+        <p class="muted toss-auto" id="toss-auto">Starting in 3…</p>`;
     }
     app.innerHTML = `<section class="toss">
       <div class="coin ${t && t.flipping ? 'flip' : ''}">${t && !t.flipping ? t.coin.toUpperCase() : '?'}</div>
@@ -160,10 +163,24 @@
       renderToss();
       setTimeout(() => { state.tossInfo = { coin: res.coin, winner: res.winner }; renderToss(); }, 1100);
     });
-    app.querySelectorAll('[data-choose]').forEach(b => b.onclick = () => {
+    // The toss winner's captain decides automatically; the match starts by itself after a moment
+    const go = choice => {
+      clearInterval(state.tossTimer); state.tossTimer = null;
+      if (state.screen !== 'toss' || !state.tossInfo || state.tossInfo.flipping) return;
       const w = state.tossInfo.winner;
-      beginInnings(b.dataset.choose === 'bat' ? w : 1 - w);
-    });
+      beginInnings(choice === 'bat' ? w : 1 - w);
+    };
+    clearInterval(state.tossTimer); state.tossTimer = null;
+    const startBtn = app.querySelector('[data-choose]');
+    if (startBtn) {
+      startBtn.onclick = () => go(startBtn.dataset.choose);
+      let n = 3;
+      state.tossTimer = setInterval(() => {
+        const el = document.getElementById('toss-auto');
+        if (!el) { clearInterval(state.tossTimer); state.tossTimer = null; return; }
+        if (--n <= 0) go(startBtn.dataset.choose); else el.textContent = `Starting in ${n}…`;
+      }, 1000);
+    }
   }
 
   // ---------- Unfinished matches survive a reload (kept on this device) ----------

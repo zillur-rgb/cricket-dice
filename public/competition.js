@@ -747,7 +747,7 @@
   function simulateFixture(db, comp, f) {
     const m = buildMatch(db, comp, f);
     const toss = E.doToss(m, Math.random() < 0.5 ? 'heads' : 'tails');
-    const choice = E.cpuTossDecision(m);
+    const choice = E.cpuTossDecision(m, toss.winner);
     E.startInnings(m, choice === 'bat' ? toss.winner : 1 - toss.winner);
     // both innings, plus Super Overs if the scores are level
     do {
