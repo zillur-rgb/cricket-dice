@@ -346,10 +346,68 @@
   // Squad in batting order, shaped for the engine
   function engineTeam(db, kind, id, comp) {
     const t = (comp ? squadsFor(db, comp).find(x => x.id === id) : null) || teamOf(db, kind, id), pm = playerMap(db);
+    const fm = formMap(db);
     const players = t.players.map(pid => pm[pid]).sort((a, b) => b.bat - a.bat)
-      .map(p => ({ pid: p.id, name: p.name, bat: p.bat, bowl: p.bowl, type: p.type }));
+      .map((p, i) => {
+        const f = fm[p.id] || { bat: 0, bowl: 0 };
+        return {
+          pid: p.id, name: p.name, type: p.type,
+          bat: Math.max(5, Math.min(99, p.bat + f.bat)), bowl: Math.max(5, Math.min(99, p.bowl + f.bowl)),
+          baseBat: p.bat, baseBowl: p.bowl, form: f,
+          noBowl: i < 2,     // the two openers don't bowl
+        };
+      });
     return { id: t.id, name: t.name, short: t.short, color: t.color, players };
   }
+
+  // ---------------- Form ----------------
+  // Last 5 matches compared with the player's own career average gives a small temporary
+  // bonus or penalty (-4 … +4 rating points). Nothing permanent: it fades as new matches come in.
+  const FORM_MATCHES = 5, FORM_MAX = 4;
+  let formCache = { key: null, map: {} };
+  function formMap(db) {
+    const key = db.matches.length + ':' + (db.matches.length ? db.matches[db.matches.length - 1].id : '');
+    if (formCache.key === key && formCache.db === db) return formCache.map;
+    const recent = {};   // pid -> { inn, runs, n, balls, rc, w }
+    const seen = {};
+    // newest first (matches are stored in the order they were played)
+    for (let k = db.matches.length - 1, n = 0; k >= 0 && n < 400; k--, n++) {
+      const m = db.matches[k];
+      const here = new Set();
+      for (const I of m.innings) {
+        if (I.superOver) continue;
+        for (const b of I.batting) here.add(b.pid);
+        for (const b of I.bowling) here.add(b.pid);
+      }
+      for (const pid of here) {
+        if ((seen[pid] = (seen[pid] || 0) + 1) > FORM_MATCHES) continue;
+        const r = recent[pid] = recent[pid] || { inn: 0, runs: 0, balls: 0, rc: 0, w: 0 };
+        for (const I of m.innings) {
+          if (I.superOver) continue;
+          const b = I.batting.find(x => x.pid === pid); if (b) { r.inn++; r.runs += b.r; }
+          const w = I.bowling.find(x => x.pid === pid); if (w) { r.balls += w.balls; r.rc += w.r; r.w += w.w; }
+        }
+      }
+    }
+    const clampF = v => Math.max(-FORM_MAX, Math.min(FORM_MAX, Math.round(v)));
+    const map = {};
+    for (const pid in recent) {
+      const r = recent[pid], s = db.stats[pid] && db.stats[pid].all;
+      if (!s) continue;
+      let bat = 0, bowl = 0;
+      // batting: runs per innings, recent vs career (3 runs = 1 point)
+      if (r.inn >= 3 && s.inn >= 5) bat = clampF((r.runs / r.inn - s.runs / s.inn) / 3);
+      // bowling: value per over = 20 per wicket minus runs conceded, recent vs career (5 = 1 point)
+      if (r.balls >= 18 && s.ballsBowled >= 30) {
+        const val = (w, rc, balls) => (20 * w - rc) * 6 / balls;
+        bowl = clampF((val(r.w, r.rc, r.balls) - val(s.wkts, s.runsConceded, s.ballsBowled)) / 5);
+      }
+      if (bat || bowl) map[pid] = { bat, bowl };
+    }
+    formCache = { key, db, map };
+    return map;
+  }
+  function formOf(db, pid) { return formMap(db)[pid] || { bat: 0, bowl: 0 }; }
 
   // ---------------- Fixtures ----------------
   function roundRobin(ids) {
@@ -745,10 +803,14 @@
 
   // ---------------- Simulation ----------------
   function buildMatch(db, comp, f) {
+    const teams = [engineTeam(db, comp.kind, f.home, comp), engineTeam(db, comp.kind, f.away, comp)];
+    // openers don't bowl, so the other players may need a second over (Städtepokal: 4 bowlers, 6 overs)
+    const bowlers = Math.min(...teams.map(t => t.players.filter(p => !p.noBowl).length));
+    const maxOv = Math.max(comp.maxOversPerBowler || 1, Math.ceil(comp.overs / Math.max(2, bowlers)));
     return E.createMatch({
-      overs: comp.overs, maxOversPerBowler: comp.maxOversPerBowler, maxBallsPerBatter: comp.maxBallsPerBatter || null, pitch: f.pitch,
+      overs: comp.overs, maxOversPerBowler: maxOv, maxBallsPerBatter: comp.maxBallsPerBatter || null, pitch: f.pitch,
       lastManStands: true,   // competitions: the last batter bats on alone
-      teams: [engineTeam(db, comp.kind, f.home, comp), engineTeam(db, comp.kind, f.away, comp)],
+      teams,
     });
   }
 
@@ -790,7 +852,7 @@
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
     startCompetition, leagueTable, divTable, divisionsFor, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
-    impactScores, playerOfMatch, seriesRace, figuresLine,
+    impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketComp = api;

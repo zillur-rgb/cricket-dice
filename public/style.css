@@ -633,3 +633,6 @@ table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
 .tm-top small { color: var(--muted); font-family: inherit; }
 .tm-squad { font-size: 14px; line-height: 1.7; }
 @media (max-width: 560px) { .tm-tops { grid-template-columns: 1fr; gap: 0; } }
+/* Form */
+.form-ic { margin-left: 4px; font-size: .9em; text-decoration: none; display: inline-block; }
+.form-line { font-size: 13px; margin: 2px 0 6px; }

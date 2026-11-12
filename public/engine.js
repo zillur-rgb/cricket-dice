@@ -216,17 +216,19 @@
     const team = match.teams[inn.bowl];
     const all = team.players
       .map((pl, i) => ({ ...pl, idx: i, overs: Math.floor(((inn.bowlers[i] || {}).balls || 0) / 6) }));
-    const regular = all.filter(b => b.type && b.idx !== inn.lastOverBowler && b.overs < match.maxOversPerBowler);
+    // canBowl: openers in competition matches don't bowl
+    const canBowl = b => b.type && !b.noBowl;
+    const regular = all.filter(b => canBowl(b) && b.idx !== inn.lastOverBowler && b.overs < match.maxOversPerBowler);
     // Only offer bowlers that still let the innings be finished without anyone
     // bowling two overs in a row or going over their limit
     const oversLeft = ovs(match, inn) - Math.floor(inn.balls / 6);
     const caps = {};
-    for (const b of all) if (b.type) caps[b.idx] = match.maxOversPerBowler - b.overs;
+    for (const b of all) if (canBowl(b)) caps[b.idx] = match.maxOversPerBowler - b.overs;
     const safe = regular.filter(b => canFinish({ ...caps, [b.idx]: caps[b.idx] - 1 }, b.idx, oversLeft - 1));
     if (safe.length) return safe;
     if (regular.length) return regular;
     // Nobody left with overs: bring on part-timers so the game never gets stuck
-    const part = all.filter(b => !b.type && b.idx !== inn.lastOverBowler).map(b => ({ ...b, partTime: true }));
+    const part = all.filter(b => !b.type && !b.noBowl && b.idx !== inn.lastOverBowler).map(b => ({ ...b, partTime: true }));
     if (part.length) return part;
     // Last resort: anyone fit to bowl except the previous over's bowler
     return all.filter(b => b.idx !== inn.lastOverBowler).map(b => ({ ...b, extraOver: true }));

@@ -357,9 +357,19 @@
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
   }
 
+  // 🔥 / ❄️ for players in form or out of form (from their last 5 matches)
+  function formIcon(f) {
+    if (!f) return '';
+    const hi = Math.max(f.bat, f.bowl), lo = Math.min(f.bat, f.bowl);
+    if (hi >= 2 && hi >= -lo) return `<span class="form-ic" title="In form: batting ${f.bat >= 0 ? '+' : ''}${f.bat}, bowling ${f.bowl >= 0 ? '+' : ''}${f.bowl}">🔥</span>`;
+    if (lo <= -2) return `<span class="form-ic" title="Out of form: batting ${f.bat >= 0 ? '+' : ''}${f.bat}, bowling ${f.bowl >= 0 ? '+' : ''}${f.bowl}">❄️</span>`;
+    return '';
+  }
+  const formIconOf = pid => formIcon(C.formOf(state.db, pid));
+
   // A player's name that opens their player card (only for players from the 120-player pool)
   function pLink(p, extra) {
-    const label = esc(p.name) + (extra || '');
+    const label = esc(p.name) + (extra || '') + formIcon(p.form);
     return p.pid && pmap()[p.pid] ? `<button class="plink" data-player="${p.pid}">${label}</button>` : label;
   }
 
@@ -550,7 +560,7 @@
   function bowlingRows(I, opts) {
     const m = state.match, bw = team(I.bowl);
     const list = bw.players.map((p, idx) => ({ p, idx, s: I.bowlers[idx] }))
-      .filter(x => I.superOver ? x.s : (x.p.type || x.s))
+      .filter(x => I.superOver ? x.s : ((x.p.type && !x.p.noBowl) || x.s))
       .sort((a, b) => {
         const ao = a.s ? a.s.order : 99, bo = b.s ? b.s.order : 99;
         return ao - bo || b.p.bowl - a.p.bowl;
@@ -648,7 +658,7 @@
         const s = i.bowlers[b.idx];
         const fig = s ? `${oversFig(s.balls)}-${s.maidens}-${s.runs}-${s.wkts} · econ ${(s.runs * 6 / s.balls).toFixed(1)}` : 'yet to bowl';
         return `<button class="bowler-opt" data-b="${b.idx}">
-          <span class="bn">${esc(b.name)}${b.idx === suggested ? ' <span class="muted" style="font-weight:400">· suggested</span>' : ''}</span>
+          <span class="bn">${esc(b.name)}${formIcon(b.form)}${b.idx === suggested ? ' <span class="muted" style="font-weight:400">· suggested</span>' : ''}</span>
           <span class="type-pill ${b.type || ''}">${b.type || 'part-time'}</span>
           <span class="bm">Skill ${b.bowl} · ${fig} · ${m.maxOversPerBowler - b.overs} over${m.maxOversPerBowler - b.overs === 1 ? '' : 's'} left</span>
         </button>`;
@@ -804,7 +814,9 @@
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
-        <li><b>Städtepokal</b>: 6 players, 6 overs. Every player bowls one over, and a batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
+        <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. Länderliga: the other 5 bowl one over each. Städtepokal: the other 4 share the 6 overs, max 2 each, never two in a row.</li>
+        <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
+        <li><b>Städtepokal</b>: 6 players, 6 overs. A batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out).</li>
       </ul>
       <p><b>Keys:</b> Q / W / E bowling plan · 1 / 2 / 3 shot · Space bowls.</p>
@@ -1513,7 +1525,7 @@
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
           ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of the 1. Liga play the semifinals and the final. After each season the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga come up. Last man stands: when everyone else is out, the last batter bats on alone.`
-          : `20 German cities, 6 players each, ${cfg.overs}-over matches. Everyone bowls one over, and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
+          : `20 German cities, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
         <div class="panel" style="margin-top:16px">${squadsHTML(kind)}</div>
@@ -1799,10 +1811,10 @@
     const pm = pmap();
     const teams = comp ? C.squadsFor(state.db, comp) : state.db.teams[kind];
     const reserves = kind === 'league' ? state.db.players.filter(p => !p.state) : [];
-    const card = (t) => `<div class="squad"><h3>${chipTeam(kind, t.id)}</h3><ul>${t.players.map(id => pm[id]).sort((a, b) => b.bat - a.bat).map(p => `<li><button class="plink" data-player="${p.id}">${esc(p.name)}</button><span class="rt">BAT ${p.bat} · BOWL ${p.bowl} <span class="type-pill ${p.type}">${p.type}</span></span></li>`).join('')}</ul></div>`;
+    const card = (t) => `<div class="squad"><h3>${chipTeam(kind, t.id)}</h3><ul>${t.players.map(id => pm[id]).sort((a, b) => b.bat - a.bat).map(p => `<li><button class="plink" data-player="${p.id}">${esc(p.name)}</button>${formIconOf(p.id)}<span class="rt">BAT ${p.bat} · BOWL ${p.bowl} <span class="type-pill ${p.type}">${p.type}</span></span></li>`).join('')}</ul></div>`;
     return `<p class="muted note" style="margin-top:0">${kind === 'league'
       ? 'Each state fields 7 players: its own cities\' players first, with small states topped up from the big ones.'
-      : `Each city fields its ${teams[0].players.length} players.`} Every player bowls.</p>
+      : `Each city fields its ${teams[0].players.length} players.`} The two openers (best batters) don't bowl. 🔥 in form · ❄️ out of form.</p>
       <div class="squads">${teams.map(card).join('')}</div>
       ${reserves.length ? `<p class="muted note">Not in a state squad this year (they still play in the Städtepokal): ${reserves.map(p => esc(p.name)).join(', ')}</p>` : ''}`;
   }
@@ -1969,7 +1981,7 @@
     }
     const topBat = Object.entries(bat).sort((a, b) => b[1].r - a[1].r || a[1].b - b[1].b).slice(0, 3);
     const topBowl = Object.entries(bowl).sort((a, b) => b[1].w - a[1].w || a[1].r - b[1].r).slice(0, 3);
-    const nm = pid => pm[pid] ? `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>` : esc(pid);
+    const nm = pid => pm[pid] ? `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>${formIconOf(pid)}` : esc(pid);
     const batRows = topBat.map(([pid, s]) => `<li>${nm(pid)}<span class="num">${s.r} <small>runs · ${s.inn} inns · SR ${s.b ? (s.r * 100 / s.b).toFixed(0) : '–'} · HS ${s.hs}</small></span></li>`).join('');
     const bowlRows = topBowl.map(([pid, s]) => `<li>${nm(pid)}<span class="num">${s.w} <small>wkts · econ ${s.balls ? (s.r * 6 / s.balls).toFixed(1) : '–'}</small></span></li>`).join('');
     const curComp = C.activeComp(db, kind) || C.lastComp(db, kind);
@@ -2012,8 +2024,14 @@
     const brow = (label, s) => { s = C.fmtStats(s); return `<tr><td>${label}</td><td>${s.overs}</td><td>${s.maidens}</td><td>${s.runsConceded}</td><td><b>${s.wkts}</b></td><td>${s.best}</td><td>${s.bowlAvg}</td><td>${s.econ}</td><td>${s.dots}</td></tr>`; };
     const recent = db.matches.filter(m => m.innings.some(I => I.batting.some(b => b.pid === pid) || I.dnb.includes(pid) || I.bowling.some(b => b.pid === pid))).slice(-6).reverse();
     const roleName = { bat: 'Batter', ar: 'All-rounder', bowl: 'Bowler' }[p.role];
+    const fm = C.formOf(db, pid);
+    const sgn = v => (v > 0 ? '+' : '') + v;
+    const formLine = fm.bat || fm.bowl
+      ? `<div class="form-line">${formIcon(fm) || '•'} Form (last 5 matches): batting <b>${sgn(fm.bat)}</b> · bowling <b>${sgn(fm.bowl)}</b> <span class="muted">→ plays as BAT ${p.bat + fm.bat} · BOWL ${p.bowl + fm.bowl}</span></div>`
+      : '<div class="form-line muted">Form: steady (no bonus or penalty)</div>';
     modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
-      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
+      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
+      ${formLine}
       <form id="rename-form" class="rename-form" hidden>
         <label for="rename-in" class="muted" style="font-size:13px">New name${state.store === 'cloud' && state.profile ? ` (only in ${esc(state.profile.name)}'s game)` : ''}</label>
         <div class="rename-row"><input id="rename-in" maxlength="30" value="${esc(p.name)}" autocomplete="off"><button class="primary" type="submit">Save</button><button class="secondary" type="button" id="rename-cancel">Cancel</button></div>
