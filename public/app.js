@@ -823,6 +823,79 @@
     return { res, j };
   }
 
+  // ---------- Offline copy (online mode) ----------
+  // Every save is first written to this device (IndexedDB). If the internet is gone the game
+  // carries on; the copy is marked "waiting to sync" and uploaded as soon as the connection is back.
+  const IDB_NAME = 'cricket-dice', IDB_STORE = 'offline';
+  let idbP = null;
+  function idb() {
+    if (!idbP) idbP = new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) { reject(new Error('no indexedDB')); return; }
+      const r = indexedDB.open(IDB_NAME, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    return idbP;
+  }
+  async function idbGet(key) {
+    try {
+      const d = await idb();
+      return await new Promise((res, rej) => { const q = d.transaction(IDB_STORE).objectStore(IDB_STORE).get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); });
+    } catch (_) { return null; }
+  }
+  async function idbSet(key, val) {
+    try {
+      const d = await idb();
+      await new Promise((res, rej) => { const t = d.transaction(IDB_STORE, 'readwrite'); t.objectStore(IDB_STORE).put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); });
+      return true;
+    } catch (_) { return false; }
+  }
+  const offlineKey = () => 'db:' + (state.profile ? state.profile.id : '');
+  state.unsynced = false;     // results on this device that are not online yet
+  state.offline = false;      // last attempt to reach the database failed
+
+  function writeOfflineCopy(dirty) {
+    if (state.store !== 'cloud' || !state.profile || !state.db) return Promise.resolve(false);
+    state.unsynced = dirty;
+    return idbSet(offlineKey(), {
+      db: state.db, dirty, savedAt: Date.now(),
+      savedIds: [...state.savedIds], compHash: state.compHash, pendingDeletes: state.pendingDeletes || [],
+    });
+  }
+  function useOfflineCopy(copy) {
+    state.db = copy.db;
+    state.savedIds = new Set(copy.savedIds || []);
+    state.compHash = copy.compHash || {};
+    state.pendingDeletes = copy.pendingDeletes || [];
+    state.unsynced = !!copy.dirty;
+  }
+  const unsyncedCount = () => state.db ? state.db.matches.filter(m => !state.savedIds.has(m.id)).length : 0;
+
+  // Try to upload whatever is waiting; called when the connection comes back and every 30 s
+  let syncing = false;
+  async function syncNow(quiet) {
+    if (syncing || state.store !== 'cloud' || !state.profile || !state.db || !state.unsynced) return;
+    if (navigator.onLine === false) return;
+    syncing = true;
+    const n = unsyncedCount();
+    try {
+      const ok = await saveCloud({ quiet: true });
+      if (ok && !state.unsynced) {
+        showToast(n ? `Back online: ${n} match${n === 1 ? '' : 'es'} synced` : 'Back online: synced');
+        if (state.screen === 'home') render();
+      } else if (!quiet && state.offline) showToast('Still offline. Your results are safe on this device.', true);
+    } finally { syncing = false; }
+  }
+  window.addEventListener('online', () => syncNow(true));
+  document.addEventListener('click', e => { if (e.target && e.target.id === 'btn-sync-now') { e.preventDefault(); syncNow(false); } });
+  // Keep the app's files on the device so the site also opens without internet
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(true); });
+  setInterval(() => syncNow(true), 30000);
+
   async function boot() {
     renderLoading();
     let db = null;
@@ -845,6 +918,15 @@
       state.store = 'server';
       db = j;
     } catch (e) {
+      // No connection, but this device has an online profile's offline copy: play on with that
+      const saved = rememberedProfile();
+      if (saved) {
+        state.profile = saved;
+        state.store = 'cloud';
+        const copy = await idbGet(offlineKey());
+        if (copy && copy.db) { openOfflineCopy(copy); return; }
+        state.store = 'local'; state.profile = null;
+      }
       state.store = 'local';
       try { db = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (_) { db = null; }
     }
@@ -857,14 +939,41 @@
   }
 
   // Load the logged-in profile's history; returns false if the PIN no longer works
+  function openOfflineCopy(copy) {
+    useOfflineCopy(copy);
+    state.offline = true;
+    if (!state.db.stats || !Object.keys(state.db.stats).length) state.db.stats = C.computeStats(state.db);
+    state.match = null; state.ctx = null;
+    restoreLive();
+    state.screen = 'home';
+    document.querySelector('.mainnav').hidden = false;
+    updateProfileButton();
+    render();
+    showToast('Offline: playing with the copy on this device. It syncs when you are back online.');
+  }
+
   async function openProfile() {
     renderLoading();
-    const { res, j } = await api('api/db?part=core');
+    const copy = await idbGet(offlineKey());
+    let res, j;
+    try { ({ res, j } = await api('api/db?part=core')); }
+    catch (e) {
+      if (copy && copy.db) { openOfflineCopy(copy); return true; }
+      renderLoadError('No internet connection, and this device has no offline copy of this profile yet.'); return true;
+    }
     if (res.status === 401) { forgetProfile(); state.profile = null; return false; }
-    if (!res.ok || !j) { renderLoadError((j && j.error) || 'The database did not answer.'); return true; }
+    if (!res.ok || !j) {
+      if (copy && copy.db) { openOfflineCopy(copy); return true; }
+      renderLoadError((j && j.error) || 'The database did not answer.'); return true;
+    }
+    state.offline = false;
     state.savedIds = new Set(); state.compHash = {};
     let db;
-    if (j.empty) { db = C.newDB(); state.db = db; await save(); }
+    if (copy && copy.dirty && copy.db) {
+      // this device has results that never reached the database: keep them and upload them now
+      useOfflineCopy(copy);
+      db = state.db;
+    } else if (j.empty) { db = C.newDB(); state.db = db; await save(); }
     else db = await loadCloud(j);
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
@@ -874,6 +983,7 @@
     state.screen = 'home';
     updateProfileButton();
     render();
+    if (state.unsynced) syncNow(true); else writeOfflineCopy(false);
     return true;
   }
 
@@ -987,7 +1097,7 @@
   async function loadCloud(core) {
     const matches = [];
     while (matches.length < core.matchCount) {
-      const { res, j } = await api(`api/db?part=matches&skip=${matches.length}&limit=300`);
+      const { res, j } = await api(`api/db?part=matches&skip=${matches.length}&limit=300`).catch(() => ({ res: { ok: false }, j: null }));
       if (!res.ok || !j || !j.matches || !j.matches.length) break;
       matches.push(...j.matches);
     }
@@ -1009,9 +1119,11 @@
     showToast(state.saveMsg, true);
   }
 
-  async function saveCloud() {
+  async function saveCloud(opts) {
     const db = state.db;
+    const quiet = opts && opts.quiet;
     if (!state.profile) { state.saveMsg = 'Not saved: no profile is open.'; return false; }
+    await writeOfflineCopy(true);           // safe on this device first, whatever happens next
     const competitions = [];
     db.competitions.forEach((comp, i) => {
       const s = JSON.stringify(comp);
@@ -1022,22 +1134,100 @@
     const meta = { app: db.app, version: db.version, cupVersion: db.cupVersion, createdAt: db.createdAt, players: db.players, teams: db.teams };
     try {
       const deleteCompetitions = (state.pendingDeletes || []).slice();
-      const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats, deleteCompetitions }) });
+      let res, j;
+      try { ({ res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'save', baseRev: db.rev || 0, meta, competitions, matches, stats: db.stats, deleteCompetitions }) })); }
+      catch (netErr) { res = null; }
+      if (!res || res.status >= 500) {
+        // no internet (or the database is down): keep playing, sync later
+        state.offline = true;
+        state.saveMsg = 'Offline: saved on this device. It will sync when you are back online.';
+        if (!quiet) showToast('Offline: saved on this device, will sync later');
+        return true;
+      }
+      state.offline = false;
       if (res.status === 401) { sessionExpired(); return false; }
-      if (res.status === 409) { state.saveMsg = 'Not saved: newer results were saved from another device. Reload the page to get them.'; showToast(state.saveMsg, true); return false; }
+      if (res.status === 409) return await resolveConflict(quiet);
       if (!res.ok) throw new Error((j && j.error) || 'save failed');
       db.rev = j.rev;
       state.pendingDeletes = (state.pendingDeletes || []).filter(id => !deleteCompetitions.includes(id));
       for (const m of matches) state.savedIds.add(m.id);
       for (const comp of db.competitions) state.compHash[comp.id] = JSON.stringify(comp);
+      await writeOfflineCopy(false);
       state.saveMsg = `Saved to ${state.profile.name}'s history.`;
-      showToast('Saved online');
+      if (!quiet) showToast('Saved online');
       return true;
     } catch (e) {
-      state.saveMsg = 'Could not save online: ' + e.message + '. Check your connection and try again.';
-      showToast(state.saveMsg, true);
-      return false;
+      state.saveMsg = 'Could not save online: ' + e.message + '. It stays on this device and will be tried again.';
+      if (!quiet) showToast(state.saveMsg, true);
+      return true;
     }
+  }
+
+  // Someone saved from another device since this one last synced. If the online copy has nothing
+  // this device lacks, upload on top of it. Otherwise ask which version to keep.
+  async function resolveConflict(quiet) {
+    let core, matches = [];
+    try {
+      const r = await api('api/db?part=core');
+      if (!r.res.ok || !r.j || r.j.empty) return true;
+      core = r.j;
+      while (matches.length < core.matchCount) {
+        const p = await api(`api/db?part=matches&skip=${matches.length}&limit=300`);
+        if (!p.res.ok || !p.j || !p.j.matches || !p.j.matches.length) break;
+        matches.push(...p.j.matches);
+      }
+    } catch (_) { state.offline = true; return true; }
+    const db = state.db;
+    const localById = new Map(db.matches.map(m => [m.id, m]));
+    const dropped = new Set(state.pendingDeletes || []);
+    // online matches this device doesn't have, or the same fixture played differently on another device
+    const onlineOnly = matches.filter(m => {
+      if (dropped.has(m.compId)) return false;
+      const mine = localById.get(m.id);
+      return !mine || (mine.date !== m.date && !state.savedIds.has(m.id));
+    });
+    if (!onlineOnly.length) {
+      // the online copy is older than this device: rebase and upload the difference
+      state.savedIds = new Set(matches.map(m => m.id));
+      state.compHash = {};
+      for (const comp of core.competitions) { const { seq, ...rest } = comp; state.compHash[comp.id] = JSON.stringify(rest); }
+      db.rev = core.meta.rev;
+      return saveCloud({ quiet });
+    }
+    // both devices played different matches: the person decides
+    const online = { ...core.meta, competitions: core.competitions, matches, stats: core.stats };
+    const mine = unsyncedCount();
+    modalCard.innerHTML = `<h2>Two versions of your history</h2>
+      <p class="muted" style="font-size:14px;line-height:1.5">This device has ${mine} match${mine === 1 ? ' that is' : 'es that are'} not online yet, and another device saved ${onlineOnly.length} match${onlineOnly.length === 1 ? '' : 'es'} that this device doesn't have (or played differently). Which version should be kept?</p>
+      <div class="btn-row" style="justify-content:flex-start;margin-top:14px;flex-wrap:wrap">
+        <button class="primary" id="cf-mine">Keep this device's version</button>
+        <button class="secondary" id="cf-online">Use the online version</button>
+      </div>`;
+    modal.hidden = false;
+    document.getElementById('cf-online').onclick = async () => {
+      modal.hidden = true;
+      state.db = online; online.rev = core.meta.rev;
+      if (!online.stats || !Object.keys(online.stats).length) online.stats = C.computeStats(online);
+      state.savedIds = new Set(matches.map(m => m.id));
+      state.compHash = {}; for (const comp of online.competitions) state.compHash[comp.id] = JSON.stringify(comp);
+      state.pendingDeletes = [];
+      await writeOfflineCopy(false);
+      state.screen = 'home'; render(); showToast('Using the online version');
+    };
+    document.getElementById('cf-mine').onclick = async () => {
+      modal.hidden = true;
+      const d = state.db;
+      const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'replace',
+        meta: { app: d.app, version: d.version, cupVersion: d.cupVersion, createdAt: d.createdAt, players: d.players, teams: d.teams },
+        competitions: d.competitions.map((c, i) => ({ ...c, seq: i })), matches: d.matches.map((m, i) => ({ ...m, seq: i })), stats: d.stats }) }).catch(() => ({ res: null }));
+      if (!res || !res.ok) { showToast('Could not upload. Your results stay on this device; try again later.', true); return; }
+      d.rev = j.rev; state.pendingDeletes = [];
+      state.savedIds = new Set(d.matches.map(m => m.id));
+      state.compHash = {}; for (const comp of d.competitions) state.compHash[comp.id] = JSON.stringify(comp);
+      await writeOfflineCopy(false);
+      render(); showToast("This device's version is online now");
+    };
+    return true;
   }
 
   function confirmBox({ title, text, ok, danger, typeWord, onOk }) {
@@ -1132,7 +1322,11 @@
 
   function storeBanner() {
     if (state.store === 'server') return `<div class="store ok">● Saving to <b>data/history.json</b> on your computer</div>`;
-    if (state.store === 'cloud') return `<div class="store ok">● Saving online · profile <b>${esc(state.profile ? state.profile.name : '')}</b></div>`;
+    if (state.store === 'cloud') {
+      const n = unsyncedCount(), who = esc(state.profile ? state.profile.name : '');
+      if (state.unsynced) return `<div class="store warn">● ${state.offline ? 'Offline' : 'Not synced yet'} · profile <b>${who}</b> · ${n ? `${n} match${n === 1 ? '' : 'es'}` : 'changes'} saved on this device, will sync automatically <button class="link-btn" id="btn-sync-now">Sync now</button></div>`;
+      return `<div class="store ok">● Saving online · profile <b>${who}</b></div>`;
+    }
     return `<div class="store warn">● Not connected to your computer. Results are kept in this browser only. To save to your Mac, run <code>npm start</code> and open the address it prints.</div>`;
   }
 
