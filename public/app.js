@@ -340,7 +340,17 @@
     // the Bowl / Auto over / Sim innings buttons exist twice: side column (desktop) and quick panel (phone)
     app.querySelectorAll('[data-act=bowl]').forEach(b => b.onclick = playBall);
     app.querySelectorAll('[data-act=auto-over]').forEach(b => b.onclick = () => autoPlay(false));
-    app.querySelectorAll('[data-act=auto-inn]').forEach(b => b.onclick = () => autoPlay(true));
+    // Simulating ends the innings (often the match), so ask first: easy to tap by mistake
+    app.querySelectorAll('[data-act=auto-inn]').forEach(b => b.onclick = () => {
+      const m = state.match, i = inn(), bt = team(i.bat);
+      const chase = i.target !== null && !i.superOver ? ' This is the chase, so the match will end.' : i.superOver ? ' This finishes the Super Over innings.' : '';
+      confirmBox({
+        title: 'Simulate the rest of the innings?',
+        text: `The computer plays every remaining ball of ${bt.name}'s innings (${E.oversStr(i.balls)} of ${i.superOver ? 1 : m.overs} overs bowled).${chase} This can't be undone.`,
+        ok: 'Sim innings',
+        onOk: () => autoPlay(true),
+      });
+    });
     app.querySelectorAll('.js-quick').forEach(q => q.onchange = () => { state.quick = q.checked; app.querySelectorAll('.js-quick').forEach(x => { x.checked = q.checked; }); });
     const i = inn();
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
@@ -1586,7 +1596,16 @@
       onOk: () => cancelSeasonNow(comp),
     });
     app.querySelectorAll('[data-play]').forEach(b => b.onclick = () => playFixture(comp, b.dataset.play));
-    app.querySelectorAll('[data-sim]').forEach(b => b.onclick = () => simFixtures(comp, [b.dataset.sim]));
+    app.querySelectorAll('[data-sim]').forEach(b => b.onclick = () => {
+      const f = comp.fixtures.find(x => x.id === b.dataset.sim);
+      const nm = id => (C.teamOf(state.db, comp.kind, id) || { name: id }).name;
+      confirmBox({
+        title: 'Simulate this match?',
+        text: `${nm(f.home)} vs ${nm(f.away)} (${fixtureLabel(comp, f)}) will be played by the computer and the result saved. This can't be undone.`,
+        ok: 'Simulate',
+        onOk: () => simFixtures(comp, [f.id]),
+      });
+    });
     app.querySelectorAll('[data-simn]').forEach(b => b.onclick = () => {
       const pend = C.pendingFixtures(comp).filter(f => f.stage === comp.stage);
       const ids = (b.dataset.simn === 'stage' ? pend : pend.slice(0, 8)).map(f => f.id);
