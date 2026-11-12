@@ -1372,7 +1372,7 @@
   const pmap = () => C.playerMap(state.db);
   const tname = (kind, id) => C.teamOf(state.db, kind, id).name;
   const tcolor = (kind, id) => C.teamOf(state.db, kind, id).color;
-  const chipTeam = (kind, id) => `<span class="tchip"><span class="dot" style="background:${tcolor(kind, id)}"></span>${esc(tname(kind, id))}</span>`;
+  const chipTeam = (kind, id) => `<span class="tchip" data-team="${kind}:${id}" role="button" tabindex="0"><span class="dot" style="background:${tcolor(kind, id)}"></span>${esc(tname(kind, id))}</span>`;
   function fixtureLabel(comp, f) {
     if (f.label) return `${comp.name} ${f.label}`;
     if (f.stage === 'group') return `${comp.name} Group ${f.group}, match ${f.round}`;
@@ -1446,7 +1446,7 @@
     const nm = pid => esc(pm[pid] ? pm[pid].name : pid);
     return `<div class="recent3">${list.map(m => {
       const T = id => C.teamOf(db, m.comp, id) || { name: id, short: id, color: '#888' };
-      const score = I => `<div class="r3-team"><span class="dot" style="background:${T(I.team).color}"></span><span class="r3-name">${esc(T(I.team).name)}</span><span class="num">${I.runs}/${I.wkts} <small>(${E.oversStr(I.balls)})</small></span></div>`;
+      const score = I => `<div class="r3-team"><span class="dot" style="background:${T(I.team).color}"></span><span class="r3-name" data-team="${m.comp}:${I.team}" role="button" tabindex="0">${esc(T(I.team).name)}</span><span class="num">${I.runs}/${I.wkts} <small>(${E.oversStr(I.balls)})</small></span></div>`;
       let bat = null, bowl = null;
       for (const I of m.innings) {
         for (const b of I.batting) if (!bat || b.r > bat.r || (b.r === bat.r && b.b < bat.b)) bat = b;
@@ -1722,7 +1722,7 @@
 
   function standingsTable(kind, rows, qualify, rowClass) {
     return `<div class="table-scroll"><table class="card standings"><thead><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>L</th><th>T</th><th>Pts</th><th>NRR</th></tr></thead><tbody>
-      ${rows.map((r, i) => `<tr class="${rowClass ? rowClass(i, rows.length) : i < qualify ? 'q' : ''}"><td>${i + 1}</td><td><span class="tchip"><span class="dot" style="background:${tcolor(kind, r.id)}"></span><span class="full">${esc(tname(kind, r.id))}</span><span class="abbr">${esc(C.teamOf(state.db, kind, r.id).short)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.t}</td><td><b>${r.pts}</b></td><td>${r.p ? (r.nrr >= 0 ? '+' : '') + r.nrr.toFixed(2) : '–'}</td></tr>`).join('')}
+      ${rows.map((r, i) => `<tr class="${rowClass ? rowClass(i, rows.length) : i < qualify ? 'q' : ''}"><td>${i + 1}</td><td><span class="tchip" data-team="${kind}:${r.id}" role="button" tabindex="0"><span class="dot" style="background:${tcolor(kind, r.id)}"></span><span class="full">${esc(tname(kind, r.id))}</span><span class="abbr">${esc(C.teamOf(state.db, kind, r.id).short)}</span></span></td><td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.t}</td><td><b>${r.pts}</b></td><td>${r.p ? (r.nrr >= 0 ? '+' : '') + r.nrr.toFixed(2) : '–'}</td></tr>`).join('')}
     </tbody></table></div>`;
   }
   function leagueTableHTML(comp) {
@@ -1898,6 +1898,113 @@
     const won = state.db.competitions.filter(c => c.summary && c.summary.playerOfSeries && c.summary.playerOfSeries.pid === pid).map(c => `${c.name} S${c.season}`);
     return won.length ? ` (${esc(won.join(', '))})` : '';
   }
+
+  // ---------- Team card: last 5 matches, season history, top batters and bowlers ----------
+  const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+
+  function teamSeasonLine(c, kind, id) {
+    const db = state.db;
+    if (!C.squadsFor(db, c).some(t => t.id === id)) return null;
+    const fx = c.fixtures.filter(f => f.home === id || f.away === id);
+    const done = c.status === 'complete';
+    const winnerOf = f => f.result && f.result.winner;
+    const fin = c.fixtures.find(f => f.stage === 'F' && f.result);
+    let line = '', cls = '';
+    if (fin && winnerOf(fin) === id) { line = 'Champion'; cls = 'champ'; }
+    else if (fin && (fin.home === id || fin.away === id)) { line = 'Runner-up'; cls = 'runner'; }
+    else {
+      const ko = fx.filter(f => ['R16', 'QF', 'SF'].includes(f.stage) && f.result && winnerOf(f) !== id).pop();
+      if (ko) line = `Lost in the ${C.STAGE_LABEL[ko.stage].toLowerCase()}`;
+    }
+    const pos = (rows) => { const i = rows.findIndex(r => r.id === id); return i < 0 ? null : i + 1; };
+    let table = '';
+    if (c.divisions) {
+      const d = c.divisions[1].includes(id) ? 1 : 2, p = pos(C.divTable(db, c, d)), n = c.divisions[d].length;
+      table = `${d}. Liga · ${ordinal(p)}`;
+      if (done && d === 1 && p > n - 2) table += ' · relegated';
+      if (done && d === 2 && p <= 2) table += ' · promoted';
+    } else if (kind === 'league') {
+      table = `League · ${ordinal(pos(C.leagueTable(db, c)))}`;
+    } else {
+      const g2 = c.groups2 && Object.keys(c.groups2).find(g => c.groups2[g].includes(id));
+      const g1 = c.groups && Object.keys(c.groups).find(g => c.groups[g].includes(id));
+      if (g2) table = `Second round group ${g2} · ${ordinal(pos(C.round2Table(db, c, g2)))}`;
+      else if (g1) table = `Group ${g1} · ${ordinal(pos(C.groupTable(db, c, g1)))}`;
+    }
+    const played = fx.filter(f => f.result), won = played.filter(f => winnerOf(f) === id).length;
+    return { season: c.season, line, cls, table, rec: `${won}W ${played.length - won}L`, running: !done };
+  }
+
+  function openTeam(kind, id) {
+    const db = state.db, t = C.teamOf(db, kind, id), pm = pmap();
+    if (!t) return;
+    const comps = db.competitions.filter(c => c.kind === kind);
+    const mine = db.matches.filter(m => m.comp === kind && m.innings.some(I => I.team === id));
+    // last 5 matches
+    const last5 = mine.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(-5).reverse();
+    const form = last5.slice().reverse().map(m => m.winner === id ? '<span class="form w">W</span>' : '<span class="form l">L</span>').join('');
+    const lastRows = last5.map(m => {
+      const main = m.innings.filter(I => !I.superOver);
+      const us = main.find(I => I.team === id), them = main.find(I => I.team !== id);
+      const opp = C.teamOf(db, kind, them.team) || { name: them.team };
+      const won = m.winner === id;
+      return `<li><span class="form ${won ? 'w' : 'l'}">${won ? 'W' : 'L'}</span>
+        <div class="tm-match"><div>vs <b>${esc(opp.name)}</b> <span class="muted">· S${m.season} ${esc(C.STAGE_LABEL[m.stage] || m.stage)}</span></div>
+        <div class="num">${us.runs}/${us.wkts} (${E.oversStr(us.balls)}) · ${them.runs}/${them.wkts} (${E.oversStr(them.balls)})</div>
+        <div class="muted" style="font-size:12px">${esc(m.result)}${m.motm && pm[m.motm] ? ` · PoM ${esc(pm[m.motm].name)}` : ''}</div></div>
+        <button class="plink" data-match="${m.id}">Card</button></li>`;
+    }).join('');
+    // season history
+    const hist = comps.map(c => teamSeasonLine(c, kind, id)).filter(Boolean).reverse();
+    const histRows = hist.map(h => `<li><span class="tm-season">S${h.season}</span>
+      <span class="tm-finish ${h.cls}">${h.cls === 'champ' ? '🏆 ' : ''}${esc(h.line || h.table || '–')}${h.line && h.table ? `<span class="muted"> · ${esc(h.table)}</span>` : ''}${h.running ? ' <span class="muted">(running)</span>' : ''}</span>
+      <span class="muted num">${h.rec}</span></li>`).join('');
+    const titles = hist.filter(h => h.cls === 'champ').length;
+    // top batters and bowlers while playing for this team
+    const bat = {}, bowl = {};
+    for (const m of mine) for (const I of m.innings) {
+      if (I.superOver) continue;
+      if (I.team === id) for (const b of I.batting) { const s = bat[b.pid] = bat[b.pid] || { r: 0, b: 0, inn: 0, out: 0, hs: 0 }; s.r += b.r; s.b += b.b; s.inn++; if (b.out) s.out++; s.hs = Math.max(s.hs, b.r); }
+      else for (const w of I.bowling) { const s = bowl[w.pid] = bowl[w.pid] || { w: 0, r: 0, balls: 0 }; s.w += w.w; s.r += w.r; s.balls += w.balls; }
+    }
+    const topBat = Object.entries(bat).sort((a, b) => b[1].r - a[1].r || a[1].b - b[1].b).slice(0, 3);
+    const topBowl = Object.entries(bowl).sort((a, b) => b[1].w - a[1].w || a[1].r - b[1].r).slice(0, 3);
+    const nm = pid => pm[pid] ? `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>` : esc(pid);
+    const batRows = topBat.map(([pid, s]) => `<li>${nm(pid)}<span class="num">${s.r} <small>runs · ${s.inn} inns · SR ${s.b ? (s.r * 100 / s.b).toFixed(0) : '–'} · HS ${s.hs}</small></span></li>`).join('');
+    const bowlRows = topBowl.map(([pid, s]) => `<li>${nm(pid)}<span class="num">${s.w} <small>wkts · econ ${s.balls ? (s.r * 6 / s.balls).toFixed(1) : '–'}</small></span></li>`).join('');
+    const curComp = C.activeComp(db, kind) || C.lastComp(db, kind);
+    const squad = (curComp ? C.squadsFor(db, curComp) : db.teams[kind]).find(x => x.id === id);
+    modalCard.innerHTML = `<div class="cc-kicker">${esc(C.COMPS[kind].name)}${titles ? ` · ${titles} title${titles === 1 ? '' : 's'}` : ''}</div>
+      <h2 class="tm-title"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</h2>
+      ${form ? `<div class="tm-form">Form ${form}</div>` : ''}
+      <h3 class="tm-h">Last 5 matches</h3>
+      ${lastRows ? `<ul class="tm-list">${lastRows}</ul>` : '<p class="muted">No matches played yet.</p>'}
+      <h3 class="tm-h">Season history</h3>
+      ${histRows ? `<ul class="tm-list tm-hist">${histRows}</ul>` : '<p class="muted">No seasons yet.</p>'}
+      <div class="tm-tops">
+        <div><h3 class="tm-h">Top batters</h3>${batRows ? `<ol class="tm-top">${batRows}</ol>` : '<p class="muted">–</p>'}</div>
+        <div><h3 class="tm-h">Top bowlers</h3>${bowlRows ? `<ol class="tm-top">${bowlRows}</ol>` : '<p class="muted">–</p>'}</div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:8px">Top batters and bowlers count only matches played for ${esc(t.name)}.</p>
+      ${squad ? `<h3 class="tm-h">Current squad</h3><div class="tm-squad">${squad.players.map(pid => nm(pid)).join(', ')}</div>` : ''}
+      <div class="btn-row" style="justify-content:flex-end;margin-top:14px"><button class="secondary" id="tm-close">Close</button></div>`;
+    modal.hidden = false;
+    bindPlayerLinks(modalCard);
+    modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
+    document.getElementById('tm-close').onclick = () => { modal.hidden = true; };
+  }
+  // any team name marked with data-team opens its card
+  document.addEventListener('click', e => {
+    const el = e.target.closest && e.target.closest('[data-team]');
+    if (!el || !state.db) return;
+    const [kind, id] = el.dataset.team.split(':');
+    e.stopPropagation();
+    openTeam(kind, id);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.target.dataset || !e.target.dataset.team) return;
+    const [kind, id] = e.target.dataset.team.split(':'); openTeam(kind, id);
+  });
 
   function openPlayer(pid) {
     const db = state.db, p = pmap()[pid], st = db.stats[pid];
