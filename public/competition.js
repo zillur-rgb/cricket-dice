@@ -487,7 +487,7 @@
       else { w = Math.random() < 0.5 ? i1.team : i2.team; text = `Scores level. ${teamOf(db, kind, w).name} win the bowl-out`; }
       winner = w; superOverTie = true; tie = false;
     }
-    const motm = bestOf(impactScores(innings, winner)).pid;
+    const motm = bestOf(winnersOnly(impactScores(innings, winner), winner)).pid;
 
     const runs = {}, ballsNRR = {};
     for (const I of innings) {
@@ -603,6 +603,14 @@
     return { score, team };
   }
 
+  // Player of the match always comes from the winning team
+  function winnersOnly(imp, winner) {
+    if (!winner) return imp;
+    const score = {};
+    for (const pid in imp.score) if (imp.team[pid] === winner) score[pid] = imp.score[pid];
+    return Object.keys(score).length ? { score, team: imp.team } : imp;
+  }
+
   function bestOf({ score, team }) {
     const [pid, val] = Object.entries(score).sort((a, b) => b[1] - a[1])[0] || [];
     return { pid, team: team[pid], score: val };
@@ -641,7 +649,7 @@
   function playerOfMatch(match) {
     const innings = inningsOf(match);
     const winner = match.result && match.result.winner !== null ? match.teams[match.result.winner].id : null;
-    const best = bestOf(impactScores(innings, winner));
+    const best = bestOf(winnersOnly(impactScores(innings, winner), winner));
     const t = match.teams.find(x => x.id === best.team);
     const p = t.players.find((pl, i) => (pl.pid || `${t.id}:${i}`) === best.pid);
     return { pid: best.pid, name: p.name, team: t.name, color: t.color, line: figuresLine(innings, best.pid) };

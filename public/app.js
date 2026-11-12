@@ -297,7 +297,7 @@
   }
 
   function setButtonsDisabled(d) {
-    app.querySelectorAll('.controls button').forEach(b => { b.disabled = d; });
+    app.querySelectorAll('.controls button:not(.plink)').forEach(b => { b.disabled = d; });
   }
 
   // ======================= PLAY SCREEN =======================
@@ -352,8 +352,15 @@
       });
     });
     app.querySelectorAll('.js-quick').forEach(q => q.onchange = () => { state.quick = q.checked; app.querySelectorAll('.js-quick').forEach(x => { x.checked = q.checked; }); });
+    bindPlayerLinks(app);
     const i = inn();
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
+  }
+
+  // A player's name that opens their player card (only for players from the 120-player pool)
+  function pLink(p, extra) {
+    const label = esc(p.name) + (extra || '');
+    return p.pid && pmap()[p.pid] ? `<button class="plink" data-player="${p.pid}">${label}</button>` : label;
   }
 
   // Phone layout: Bowl button on the left, batters and current bowler on the right
@@ -372,13 +379,13 @@
     const bat = idx => {
       const b = i.batters[idx];
       const lim = m.maxBallsPerBatter && !b.returned && !i.superOver ? `/${m.maxBallsPerBatter}` : '';
-      return `<div class="ml-row ${idx === i.striker ? 'on-strike' : ''}"><span class="pname">${esc(bt.players[idx].name)}${idx === i.striker ? ' *' : ''}</span><span class="num">${b.runs} (${b.balls}${lim})</span></div>${b.fours || b.sixes ? `<div class="ml-sub">${b.fours}×4 · ${b.sixes}×6</div>` : ''}`;
+      return `<div class="ml-row ${idx === i.striker ? 'on-strike' : ''}"><span class="pname">${pLink(bt.players[idx], idx === i.striker ? ' *' : '')}</span><span class="num">${b.runs} (${b.balls}${lim})</span></div>${b.fours || b.sixes ? `<div class="ml-sub">${b.fours}×4 · ${b.sixes}×6</div>` : ''}`;
     };
     const bIdx = i.bowler !== null ? i.bowler : i.lastOverBowler;
     let bowler = '<div class="ml-row muted">Choose a bowler</div>';
     if (bIdx !== null && i.bowlers[bIdx]) {
       const s = i.bowlers[bIdx];
-      bowler = `<div class="ml-row"><span class="pname">${esc(bw.players[bIdx].name)}</span><span class="num">${oversFig(s.balls)}-${s.maidens || 0}-${s.runs}-${s.wkts}</span></div>`;
+      bowler = `<div class="ml-row"><span class="pname">${pLink(bw.players[bIdx])}</span><span class="num">${oversFig(s.balls)}-${s.maidens || 0}-${s.runs}-${s.wkts}</span></div>`;
     }
     const tokens = (i.overLog[i.overLog.length - 1] || []).map(t => {
       const cls = t === '4' ? 't4' : t === '6' ? 't6' : t === 'W' ? 'tW' : (t.startsWith('wd') || t.startsWith('nb')) ? 'tx' : '';
@@ -526,7 +533,7 @@
     const bt = team(i.bat);
     const bRow = idx => {
       const b = i.batters[idx];
-      return `<div class="pl-row ${idx === i.striker ? 'on-strike' : ''}"><span class="pname">${esc(bt.players[idx].name)}</span>
+      return `<div class="pl-row ${idx === i.striker ? 'on-strike' : ''}"><span class="pname">${pLink(bt.players[idx])}</span>
         <span class="num">${b.runs} (${b.balls}${state.match.maxBallsPerBatter && !b.returned ? '/' + state.match.maxBallsPerBatter : ''})${b.fours || b.sixes ? ` <span class="muted">${b.fours}×4 ${b.sixes}×6</span>` : ''}</span></div>`;
     };
     const tokens = (i.overLog[i.overLog.length - 1] || []).map(t => {
@@ -562,7 +569,7 @@
       }
       const econ = balls ? (s.runs * 6 / balls).toFixed(1) : '–';
       return `<tr class="${isNow ? 'batting' : ''}">
-        <td>${esc(p.name)} <span class="type-pill ${p.type || ''}">${p.type || 'part'}</span>${opts.live ? `<span class="how">Skill ${p.bowl}</span>` : ''}</td>
+        <td>${pLink(p)} <span class="type-pill ${p.type || ''}">${p.type || 'part'}</span>${opts.live ? `<span class="how">Skill ${p.bowl}</span>` : ''}</td>
         <td>${s ? oversFig(s.balls) : '–'}</td><td>${s ? s.maidens : '–'}</td><td>${s ? s.runs : '–'}</td><td><b>${s ? s.wkts : '–'}</b></td>
         <td>${econ}</td><td>${s ? s.dots : '–'}</td>${opts.live ? `<td>${s ? s.fours + '/' + s.sixes : '–'}</td><td>${status}</td>` : `<td>${s ? s.wides + s.nbs : '–'}</td>`}</tr>`;
     }).join('');
@@ -610,7 +617,7 @@
       const atCrease = !b.out && !I.done && (b.idx === I.striker || b.idx === I.nonStriker);
       const how = b.out ? b.out.text : (b.retired && !b.returned ? 'retired not out' : 'not out');
       const sr = b.balls ? (b.runs * 100 / b.balls).toFixed(0) : '–';
-      return `<tr class="${atCrease ? 'batting' : ''}"><td>${esc(p.name)}<span class="how">${esc(how)}</span></td>
+      return `<tr class="${atCrease ? 'batting' : ''}"><td>${pLink(p)}<span class="how">${esc(how)}</span></td>
         <td><b>${b.runs}</b></td><td>${b.balls}</td><td>${b.fours}</td><td>${b.sixes}</td><td>${sr}</td></tr>`;
     }).join('');
     const dnb = I.superOver ? [] : I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].name);

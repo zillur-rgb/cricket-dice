@@ -602,3 +602,6 @@ table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
 .ml-row .num { flex: none; }
 .ml-left > * { min-width: 0; }
 .ml-small .secondary { min-width: 0; padding: 8px 2px; font-size: 12px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Player names in a live match open the player card */
+.pname .plink, .card td .plink { font: inherit; color: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.pname .plink { display: inline-block; }
