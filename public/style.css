@@ -595,3 +595,10 @@ table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
 .mlive { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
 .mlive .ml-left { order: 2; }
 .mlive .ml-right { order: 1; border-left: 0; padding-left: 0; border-right: 1px solid var(--line); padding-right: 12px; }
+/* Long names must shrink (…) instead of pushing the stats under the Bowl button */
+.ml-right { grid-template-columns: minmax(0, 1fr); }
+.ml-right > * { min-width: 0; }
+.ml-row .pname { flex: 1 1 auto; }
+.ml-row .num { flex: none; }
+.ml-left > * { min-width: 0; }
+.ml-small .secondary { min-width: 0; padding: 8px 2px; font-size: 12px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
