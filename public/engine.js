@@ -126,6 +126,7 @@
       overs,
       maxOversPerBowler: cfg.maxOversPerBowler || Math.max(1, Math.ceil(overs / 5)),
       maxBallsPerBatter: cfg.maxBallsPerBatter || null,   // batter retires (not out) after this many balls
+      lastManStands: !!cfg.lastManStands,                 // the last batter may bat on alone
       pitch: cfg.pitch || 'balanced',
       teams: [teamA, teamB],
       innings: [],
@@ -451,7 +452,13 @@
       inn.partnership = { runs: 0, balls: 0 };
       if (inn.wkts < maxWkts(match, inn)) {
         const nb = nextBatter(match, inn, facedIdx);
-        if (nb === null) inn.noBatters = true; else inn.striker = nb;
+        if (nb !== null) inn.striker = nb;
+        else if (match.lastManStands && !inn.superOver) {
+          // Last man stands: the partner bats on alone and always keeps the strike
+          inn.striker = inn.nonStriker; inn.nonStriker = null; inn.alone = true;
+          ev.lastMan = match.teams[inn.bat].players[inn.striker].name;
+          ev.text += ` ${ev.lastMan} bats on alone.`;
+        } else inn.noBatters = true;
       }
     } else {
       const r = Number(out);
@@ -506,10 +513,14 @@
 
   function maxWkts(match, inn) {
     const n = match.teams[inn.bat].players.length - 1;
-    return inn.superOver ? Math.min(2, n) : n;
+    if (inn.superOver) return Math.min(2, n);
+    return match.lastManStands ? n + 1 : n;   // last man stands: every batter has to be out
   }
 
-  function swapStrike(inn) { const t = inn.striker; inn.striker = inn.nonStriker; inn.nonStriker = t; }
+  function swapStrike(inn) {
+    if (inn.alone || inn.nonStriker === null) return;   // a lone batter keeps the strike
+    const t = inn.striker; inn.striker = inn.nonStriker; inn.nonStriker = t;
+  }
 
   function checkEnd(match) {
     const inn = cur(match);
