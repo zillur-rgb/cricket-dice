@@ -302,6 +302,7 @@
     app.innerHTML = `<section class="match">
       <div class="col col-main">
         <div class="o-1">${scoreboardHTML()}</div>
+        <div class="o-live">${mobileLiveHTML()}</div>
         <div class="o-2 panel delivery" id="delivery">${deliveryInner(false)}</div>
         ${autoPlans() ? '' : `<div class="o-4">${plansHTML()}</div>`}
         <div class="o-5">${playersHTML()}</div>
@@ -318,12 +319,58 @@
 
     app.querySelectorAll('[data-bat]').forEach(b => b.onclick = () => { state.bat = b.dataset.bat; state.preview = true; renderPlay(); });
     app.querySelectorAll('[data-bowl]').forEach(b => b.onclick = () => { state.bowl = b.dataset.bowl; state.preview = true; renderPlay(); });
-    const bowl = document.getElementById('btn-bowl'); if (bowl) bowl.onclick = playBall;
-    const ao = document.getElementById('btn-auto-over'); if (ao) ao.onclick = () => autoPlay(false);
-    const ai = document.getElementById('btn-auto-inn'); if (ai) ai.onclick = () => autoPlay(true);
-    const q = document.getElementById('quick'); if (q) q.onchange = () => { state.quick = q.checked; };
+    // the Bowl / Auto over / Sim innings buttons exist twice: side column (desktop) and quick panel (phone)
+    app.querySelectorAll('[data-act=bowl]').forEach(b => b.onclick = playBall);
+    app.querySelectorAll('[data-act=auto-over]').forEach(b => b.onclick = () => autoPlay(false));
+    app.querySelectorAll('[data-act=auto-inn]').forEach(b => b.onclick = () => autoPlay(true));
+    app.querySelectorAll('.js-quick').forEach(q => q.onchange = () => { state.quick = q.checked; app.querySelectorAll('.js-quick').forEach(x => { x.checked = q.checked; }); });
     const i = inn();
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
+  }
+
+  // Phone layout: Bowl button on the left, batters and current bowler on the right
+  function mobileLiveHTML() {
+    const m = state.match, i = inn();
+    const bt = team(i.bat), bw = team(i.bowl);
+    const L = state.last ? state.last.ev : null;
+    let last = '<span class="muted">First ball coming up</span>';
+    if (L) {
+      const [tok, cls] = tokenFor(L);
+      const word = L.type === 'wicket' ? 'Out!' : L.type === 'wide' ? 'Wide' : L.type === 'noball' ? 'No-ball' : L.runs === 4 ? 'Four!' : L.runs === 6 ? 'Six!' : L.runs === 0 ? 'Dot ball' : `${L.runs} run${L.runs > 1 ? 's' : ''}`;
+      last = `<span class="tok ${cls}">${esc(tok)}</span><span class="ml-word ${cls}">${esc(word)}</span>`;
+    }
+    const plans = autoPlans() && i.bowler !== null
+      ? `<div class="ml-plans">${esc(bw.short)} <b>${PLAN_NAME[state.bowl]}</b> · ${esc(bt.short)} <b>${MODE_NAME[state.bat]}</b></div>` : '';
+    const bat = idx => {
+      const b = i.batters[idx];
+      const lim = m.maxBallsPerBatter && !b.returned && !i.superOver ? `/${m.maxBallsPerBatter}` : '';
+      return `<div class="ml-row ${idx === i.striker ? 'on-strike' : ''}"><span class="pname">${esc(bt.players[idx].name)}${idx === i.striker ? ' *' : ''}</span><span class="num">${b.runs} (${b.balls}${lim})</span></div>${b.fours || b.sixes ? `<div class="ml-sub">${b.fours}×4 · ${b.sixes}×6</div>` : ''}`;
+    };
+    const bIdx = i.bowler !== null ? i.bowler : i.lastOverBowler;
+    let bowler = '<div class="ml-row muted">Choose a bowler</div>';
+    if (bIdx !== null && i.bowlers[bIdx]) {
+      const s = i.bowlers[bIdx];
+      bowler = `<div class="ml-row"><span class="pname">${esc(bw.players[bIdx].name)}</span><span class="num">${oversFig(s.balls)}-${s.maidens || 0}-${s.runs}-${s.wkts}</span></div>`;
+    }
+    const tokens = (i.overLog[i.overLog.length - 1] || []).map(t => {
+      const cls = t === '4' ? 't4' : t === '6' ? 't6' : t === 'W' ? 'tW' : (t.startsWith('wd') || t.startsWith('nb')) ? 'tx' : '';
+      return `<span class="tok sm ${cls}">${esc(t)}</span>`;
+    }).join('');
+    return `<div class="panel controls mlive">
+      <div class="ml-left">
+        ${plans}
+        <button class="primary bowl-btn" data-act="bowl">Bowl</button>
+        <div class="ml-last">${last}</div>
+        <div class="ml-small"><button class="secondary" data-act="auto-over">Auto over</button><button class="secondary" data-act="auto-inn">Sim inns</button></div>
+      </div>
+      <div class="ml-right">
+        <div class="ml-label">At the crease</div>
+        ${i.done ? '' : bat(i.striker) + bat(i.nonStriker)}
+        <div class="ml-label">Bowling</div>
+        ${bowler}
+        <div class="this-over sm">${tokens || '<span class="muted" style="font-size:12px">New over</span>'}</div>
+      </div>
+    </div>`;
   }
 
   function scoreboardHTML() {
@@ -333,7 +380,7 @@
     let sub = `<span>CRR <b>${crr.toFixed(2)}</b></span>`;
     let target = '';
     if (i.target !== null) {
-      const need = i.target - i.runs, left = m.overs * 6 - i.balls;
+      const need = i.target - i.runs, left = (i.superOver ? 6 : m.overs * 6) - i.balls;
       const rrr = left ? need * 6 / left : 0;
       sub += `<span>RRR <b>${rrr.toFixed(2)}</b></span><span>Target <b>${i.target}</b></span>`;
       target = `<div class="sb-target">${esc(t.name)} need <b>${need}</b> run${need === 1 ? '' : 's'} from <b>${left}</b> ball${left === 1 ? '' : 's'}</div>`;
@@ -437,12 +484,12 @@
       : '';
     return `<div class="panel controls actions">
       ${auto}
-      <button class="primary bowl-btn" id="btn-bowl">Bowl <small class="key-hint">␣</small></button>
+      <button class="primary bowl-btn" id="btn-bowl" data-act="bowl">Bowl <small class="key-hint">␣</small></button>
       <div class="action-row two">
-        <button class="secondary" id="btn-auto-over" title="The computer plays the rest of this over">Auto over</button>
-        <button class="secondary" id="btn-auto-inn" title="Simulate to the end of the innings">Sim innings</button>
+        <button class="secondary" id="btn-auto-over" data-act="auto-over" title="The computer plays the rest of this over">Auto over</button>
+        <button class="secondary" id="btn-auto-inn" data-act="auto-inn" title="Simulate to the end of the innings">Sim innings</button>
       </div>
-      <label class="toggle"><input type="checkbox" id="quick" ${state.quick ? 'checked' : ''}> Quick mode (skip the roll animation)</label>
+      <label class="toggle"><input type="checkbox" id="quick" class="js-quick" ${state.quick ? 'checked' : ''}> Quick mode (skip the roll animation)</label>
     </div>`;
   }
 
