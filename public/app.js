@@ -579,7 +579,7 @@
       }
       const econ = balls ? (s.runs * 6 / balls).toFixed(1) : '–';
       return `<tr class="${isNow ? 'batting' : ''}">
-        <td>${pLink(p)} <span class="type-pill ${p.type || ''}">${p.type || 'part'}</span>${opts.live ? `<span class="how">Skill ${p.bowl}</span>` : ''}</td>
+        <td>${pLink(p)} <span class="type-pill ${p.type || ''}">${p.type || 'part'}</span>${opts.live ? `<span class="how">Skill ${p.bowl}${m.secondOverPenalty && !I.superOver && s && s.balls >= 6 && !I.done ? ` → ${Math.max(5, p.bowl - m.secondOverPenalty)} in 2nd over` : ''}</span>` : ''}</td>
         <td>${s ? oversFig(s.balls) : '–'}</td><td>${s ? s.maidens : '–'}</td><td>${s ? s.runs : '–'}</td><td><b>${s ? s.wkts : '–'}</b></td>
         <td>${econ}</td><td>${s ? s.dots : '–'}</td>${opts.live ? `<td>${s ? s.fours + '/' + s.sixes : '–'}</td><td>${status}</td>` : `<td>${s ? s.wides + s.nbs : '–'}</td>`}</tr>`;
     }).join('');
@@ -658,7 +658,7 @@
         const s = i.bowlers[b.idx];
         const fig = s ? `${oversFig(s.balls)}-${s.maidens}-${s.runs}-${s.wkts} · econ ${(s.runs * 6 / s.balls).toFixed(1)}` : 'yet to bowl';
         return `<button class="bowler-opt" data-b="${b.idx}">
-          <span class="bn">${esc(b.name)}${formIcon(b.form)}${b.idx === suggested ? ' <span class="muted" style="font-weight:400">· suggested</span>' : ''}</span>
+          <span class="bn">${esc(b.name)}${formIcon(b.form)}${state.match.secondOverPenalty && b.overs >= 1 && !inn().superOver ? ` <span class="muted" style="font-weight:400">· 2nd over: skill ${Math.max(5, b.bowl - state.match.secondOverPenalty)}</span>` : ''}${b.idx === suggested ? ' <span class="muted" style="font-weight:400">· suggested</span>' : ''}</span>
           <span class="type-pill ${b.type || ''}">${b.type || 'part-time'}</span>
           <span class="bm">Skill ${b.bowl} · ${fig} · ${m.maxOversPerBowler - b.overs} over${m.maxOversPerBowler - b.overs === 1 ? '' : 's'} left</span>
         </button>`;
@@ -814,7 +814,7 @@
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
-        <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. Länderliga: the other 5 bowl one over each. Städtepokal: the other 4 share the 6 overs, max 2 each, never two in a row.</li>
+        <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. Länderliga: the other 5 bowl one over each. Städtepokal: the other 4 share the 6 overs, max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. A batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out).</li>

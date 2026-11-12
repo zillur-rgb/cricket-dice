@@ -127,6 +127,7 @@
       maxOversPerBowler: cfg.maxOversPerBowler || Math.max(1, Math.ceil(overs / 5)),
       maxBallsPerBatter: cfg.maxBallsPerBatter || null,   // batter retires (not out) after this many balls
       lastManStands: !!cfg.lastManStands,                 // the last batter may bat on alone
+      secondOverPenalty: cfg.secondOverPenalty || 0,      // rating points a bowler loses in their 2nd+ over
       pitch: cfg.pitch || 'balanced',
       teams: [teamA, teamB],
       innings: [],
@@ -271,7 +272,8 @@
     // Score each bowler: skill + pitch fit + phase fit; keep best bowler overs for death
     let best = null, bestScore = -Infinity;
     for (const b of options) {
-      let s = b.bowl + rand() * 10;
+      // a tired second over counts against a bowler
+      let s = (match.secondOverPenalty && b.overs >= 1 && !inn.superOver ? b.bowl - match.secondOverPenalty : b.bowl) + rand() * 10;
       if (match.pitch === 'dusty' && b.type === 'spin') s += 8;
       if (match.pitch === 'green' && b.type === 'pace') s += 8;
       if ((pp || death) && b.type === 'pace') s += 4;
@@ -298,6 +300,15 @@
     return 'middle';
   }
 
+  // A bowler's rating for the current ball: a second (or later) over can be bowled tired,
+  // costing match.secondOverPenalty rating points (Städtepokal)
+  function effectiveBowl(match, inn, idx) {
+    const p = match.teams[inn.bowl].players[idx];
+    const st = inn.bowlers[idx];
+    const tired = match.secondOverPenalty && !inn.superOver && st && st.balls >= 6;
+    return Math.max(5, p.bowl - (tired ? match.secondOverPenalty : 0));
+  }
+
   function ballProbabilities(match, batMode, bowlPlan) {
     const inn = cur(match);
     const batTeam = match.teams[inn.bat], bowlTeam = match.teams[inn.bowl];
@@ -314,7 +325,7 @@
     // Skill: the bowler's own quality and the batter's own quality each count.
     // q > 0 = better than average. Tuned so a weak bowler (~40) goes for ~12–13 an over
     // and a top one (~85) for ~7.5–8, without changing the average team score.
-    const bq = (bowler.bowl - SKILL.bowlMid) / SKILL.bowlSpread;
+    const bq = (effectiveBowl(match, inn, inn.bowler) - SKILL.bowlMid) / SKILL.bowlSpread;
     const aq = (batter.bat - SKILL.batMid) / SKILL.batSpread;
     mul('4', Math.exp(-SKILL.b4 * bq + SKILL.a4 * aq));
     mul('6', Math.exp(-SKILL.b6 * bq + SKILL.a6 * aq));
@@ -661,7 +672,7 @@
 
   const api = {
     BAT_TABLES, BOWL_PLANS, PITCHES, PRESET_TEAMS,
-    createMatch, doToss, cpuTossDecision, tossDecision, startInnings, cur,
+    createMatch, doToss, cpuTossDecision, tossDecision, startInnings, cur, effectiveBowl,
     eligibleBowlers, needsBowler, setBowler, cpuChooseBowler,
     ballProbabilities, bowlBall, cpuBatMode, cpuBowlPlan, startNextInnings,
     oversStr, runRate, setRandom, mulberry32, phaseOf,

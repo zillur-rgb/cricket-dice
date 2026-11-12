@@ -802,6 +802,9 @@
   }
 
   // ---------------- Simulation ----------------
+  // A bowler's 2nd over costs this many rating points (tuned so Städtepokal scores stay around 61–65)
+  const SECOND_OVER_PENALTY = 30;
+
   function buildMatch(db, comp, f) {
     const teams = [engineTeam(db, comp.kind, f.home, comp), engineTeam(db, comp.kind, f.away, comp)];
     // openers don't bowl, so the other players may need a second over (Städtepokal: 4 bowlers, 6 overs)
@@ -810,6 +813,7 @@
     return E.createMatch({
       overs: comp.overs, maxOversPerBowler: maxOv, maxBallsPerBatter: comp.maxBallsPerBatter || null, pitch: f.pitch,
       lastManStands: true,   // competitions: the last batter bats on alone
+      secondOverPenalty: maxOv > 1 ? SECOND_OVER_PENALTY : 0,   // Städtepokal: a 2nd over is bowled tired
       teams,
     });
   }
