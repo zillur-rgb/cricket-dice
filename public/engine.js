@@ -9,9 +9,9 @@
 
   // ---------- Base tables (per legal ball, roughly percentages) ----------
   const BAT_TABLES = {
-    defend: { 0: 35, 1: 52, 2: 6.5, 3: 0.5, 4: 4.5, 6: 0.5, W: 1.2 },
-    normal: { 0: 30, 1: 41, 2: 8.5, 3: 1, 4: 12, 6: 4.1, W: 3.4 },
-    attack: { 0: 25, 1: 31, 2: 7, 3: 0.5, 4: 17, 6: 12.5, W: 6.8 },
+    defend: { 0: 52, 1: 35, 2: 6.5, 3: 0.5, 4: 4.5, 6: 0.5, W: 1.2 },
+    normal: { 0: 37, 1: 36, 2: 7.5, 3: 0.6, 4: 11, 6: 4.2, W: 3.4 },
+    attack: { 0: 31, 1: 27, 2: 7, 3: 0.5, 4: 17, 6: 10.5, W: 6.8 },
   };
 
   const BOWL_PLANS = {
@@ -126,7 +126,6 @@
       overs,
       maxOversPerBowler: cfg.maxOversPerBowler || Math.max(1, Math.ceil(overs / 5)),
       maxBallsPerBatter: cfg.maxBallsPerBatter || null,   // batter retires (not out) after this many balls
-      lastManStands: !!cfg.lastManStands,                 // the last batter may bat on alone
       pitch: cfg.pitch || 'balanced',
       teams: [teamA, teamB],
       innings: [],
@@ -291,8 +290,6 @@
   function phaseOf(match, inn) {
     if (inn.superOver) return 'death';
     const overNo = Math.floor(inn.balls / 6);
-    // Short formats: the first 2 overs are the powerplay, the last 2 overs the death
-    if (match.overs <= 10) return overNo < 2 ? 'powerplay' : overNo >= match.overs - 2 ? 'death' : 'middle';
     if (overNo < Math.max(1, Math.round(match.overs * 0.3))) return 'powerplay';
     if (overNo >= Math.floor(match.overs * 0.8)) return 'death';
     return 'middle';
@@ -322,12 +319,12 @@
     mul('W', Math.exp(SKILL.bW * bq - SKILL.aW * aq));
 
     // Getting set
-    if (bstat.balls < 2) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }
-    else if (bstat.balls >= 10) { mul('W', 0.85); mul('4', 1.1); mul('6', 1.1); }
+    if (bstat.balls < 5) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }
+    else if (bstat.balls >= 25) { mul('W', 0.85); mul('4', 1.1); mul('6', 1.1); }
 
     // Phase
     const phase = phaseOf(match, inn);
-    if (phase === 'powerplay') { mul('4', 1.15); }
+    if (phase === 'powerplay') { mul('4', 1.15); mul('6', 1.05); }
     if (phase === 'death') { mul('6', 1.2); mul('4', 1.1); mul('W', 1.1); }
 
     // Pitch
@@ -454,13 +451,7 @@
       inn.partnership = { runs: 0, balls: 0 };
       if (inn.wkts < maxWkts(match, inn)) {
         const nb = nextBatter(match, inn, facedIdx);
-        if (nb !== null) inn.striker = nb;
-        else if (match.lastManStands && !inn.superOver) {
-          // Last man stands: the partner bats on alone and always keeps the strike
-          inn.striker = inn.nonStriker; inn.nonStriker = null; inn.alone = true;
-          ev.lastMan = match.teams[inn.bat].players[inn.striker].name;
-          ev.text += ` ${ev.lastMan} bats on alone.`;
-        } else inn.noBatters = true;
+        if (nb === null) inn.noBatters = true; else inn.striker = nb;
       }
     } else {
       const r = Number(out);
@@ -515,14 +506,10 @@
 
   function maxWkts(match, inn) {
     const n = match.teams[inn.bat].players.length - 1;
-    if (inn.superOver) return Math.min(2, n);
-    return match.lastManStands ? n + 1 : n;   // last man stands: every batter has to be out
+    return inn.superOver ? Math.min(2, n) : n;
   }
 
-  function swapStrike(inn) {
-    if (inn.alone || inn.nonStriker === null) return;   // a lone batter keeps the strike
-    const t = inn.striker; inn.striker = inn.nonStriker; inn.nonStriker = t;
-  }
+  function swapStrike(inn) { const t = inn.striker; inn.striker = inn.nonStriker; inn.nonStriker = t; }
 
   function checkEnd(match) {
     const inn = cur(match);
@@ -596,28 +583,6 @@
   }
 
   // ---------- CPU decision making ----------
-  // Skill edge for this ball: > 0 favours the batter, < 0 the bowler (about -2 … +2)
-  function edgeOf(match, inn) {
-    const batter = match.teams[inn.bat].players[inn.striker];
-    const bowler = inn.bowler !== null ? match.teams[inn.bowl].players[inn.bowler] : null;
-    const aq = (batter.bat - SKILL.batMid) / SKILL.batSpread;
-    const bq = bowler ? (bowler.bowl - SKILL.bowlMid) / SKILL.bowlSpread : 0;
-    return aq - bq;
-  }
-
-  // Par run rate for the side batting first in short formats
-  function parRate(match) {
-    return 11 + (match.pitch === 'flat' ? 1 : match.pitch === 'balanced' ? 0 : -0.5);
-  }
-
-  // Will the striker retire at the ball limit (rather than bat on)?
-  function aboutToRetire(match, inn, within) {
-    const st = inn.batters[inn.striker];
-    if (!match.maxBallsPerBatter || inn.superOver || st.returned || inn.alone) return false;
-    const freshLeft = (inn.order || []).length - inn.nextIn;
-    return st.balls >= match.maxBallsPerBatter - within && freshLeft > 0;
-  }
-
   function cpuBatMode(match) {
     const inn = cur(match);
     const ballsLeft = ovs(match, inn) * 6 - inn.balls;
@@ -625,40 +590,24 @@
     const phase = phaseOf(match, inn);
     const batter = match.teams[inn.bat].players[inn.striker];
     if (inn.freeHit) return 'attack';
+    // Short formats (10 overs or fewer): there's no time to build, so captains attack early.
+    // How hard depends on the share of wickets left, since small squads have few to lose.
     if (match.overs <= 10) {
-      const edge = edgeOf(match, inn);
-      const perOver = wktsLeft / Math.max(ballsLeft / 6, 1);   // wickets in hand per over left
+      // wickets in hand per over remaining: high = can afford risk
+      const perOver = wktsLeft / Math.max(ballsLeft / 6, 1);
       const lastOver = ballsLeft <= 6;
+      const attackChance = wktsLeft <= 2 && ballsLeft > 18 ? 0 : perOver >= 0.9 ? 0.8 : perOver >= 0.6 ? 0.45 : perOver >= 0.4 ? 0.12 : 0.04;
       if (inn.target !== null) {
-        // ---- Chasing: the required rate decides, the matchup fine-tunes ----
         const need = inn.target - inn.runs;
         const rrr = (need / Math.max(ballsLeft, 1)) * 6;
-        if (need <= 0) return 'normal';
-        if (lastOver) return rrr > 6 || wktsLeft > 1 ? 'attack' : 'normal';
-        if (rrr > 11) return 'attack';
-        if (rrr > 8) return edge > -0.6 || perOver >= 0.6 || ballsLeft <= 12 ? 'attack' : 'normal';
-        if (aboutToRetire(match, inn, 2) && wktsLeft >= 2) return 'attack';
-        if (rrr < 6 && wktsLeft <= 1) return edge < -0.8 ? 'defend' : 'normal';
-        // A normal shot scores about 7 an over, so at 6–8 an over the chasers keep attacking
-        // while they have wickets to spare; with few left they work the singles.
-        let p = rrr >= 5 ? (wktsLeft >= 2 ? 0.95 : 0.5)
-                         : (perOver >= 1 ? 0.6 : perOver >= 0.6 ? 0.35 : 0.1);
-        p += 0.15 * Math.max(-1.5, Math.min(1.5, edge));
-        return rand() < p ? 'attack' : 'normal';
+        if (rrr > 10 || (lastOver && rrr > 6)) return 'attack';
+        if (rrr > 7.5) return perOver >= 0.5 || ballsLeft <= 12 ? 'attack' : 'normal';
+        if (rrr < 5 && wktsLeft <= 1) return 'defend';
+        return rand() < attackChance * 0.5 ? 'attack' : 'normal';
       }
-      // ---- Batting first: aim above par, but respect the matchup and wickets ----
-      if (lastOver) return 'attack';
-      if (aboutToRetire(match, inn, 2) && wktsLeft >= 2) return 'attack';   // use it or lose it
-      if (wktsLeft <= 1 && ballsLeft > 12) return edge > 1 ? 'normal' : 'defend';
-      // a tail-ender against a good bowler just rotates the strike
-      if (batter.bat < 45 && edge < -1 && phase !== 'death') return 'normal';
-      const par = parRate(match) * inn.balls / 6;
-      let p = perOver >= 0.9 ? 0.75 : perOver >= 0.6 ? 0.55 : perOver >= 0.4 ? 0.32 : 0.24;
-      if (inn.balls >= 6) p += inn.runs < par - 4 ? 0.2 : inn.runs > par + 6 ? -0.15 : 0;
-      p += 0.22 * Math.max(-1.5, Math.min(1.5, edge));
-      if (phase === 'death' && wktsLeft >= 2) p += 0.25;
-      if (wktsLeft <= 2 && ballsLeft > 18) p = Math.min(p, 0.05);
-      return rand() < p ? 'attack' : 'normal';
+      if (lastOver && wktsLeft >= 1) return 'attack';
+      if (wktsLeft <= 1 && ballsLeft > 12) return 'defend';
+      return rand() < attackChance ? 'attack' : 'normal';
     }
     if (inn.target !== null) {
       const need = inn.target - inn.runs;
@@ -680,23 +629,15 @@
     const inn = cur(match);
     const ballsLeft = ovs(match, inn) * 6 - inn.balls;
     const phase = phaseOf(match, inn);
-    const edge = inn.bowler !== null ? edgeOf(match, inn) : 0;   // > 0 = batter is better
     if (inn.target !== null) {
       const need = inn.target - inn.runs;
       const rrr = (need / Math.max(ballsLeft, 1)) * 6;
       if (rrr < 6) return 'attack';    // need wickets to win
-      // squeeze them, but in short formats only now and then: a fully tight attack
-      // would stop the chasers getting the boundaries they need
-      if (rrr > 10) return match.overs > 10 || rand() < 0.2 ? 'tight' : 'normal';
+      // squeeze them; in short formats only now and then, otherwise the chase can't get its boundaries
+      if (rrr > 10) return match.overs > 10 || rand() < 0.5 ? 'tight' : 'normal';
     }
-    if (inn.alone) return 'attack';                                   // one wicket ends it
-    if (inn.batters[inn.striker].balls < 4) return edge > 1 ? 'normal' : 'attack'; // new batter
-    if (match.overs <= 10) {
-      if (edge > 0.8 && rand() < 0.5) return 'tight';                // star batter v weaker bowler
-      if (edge < -0.8) return 'attack';                               // good bowler v weak batter
-      if (aboutToRetire(match, inn, 2)) return 'tight';               // they will swing: give nothing
-    }
-    if (phase === 'death') return rand() < (match.overs <= 10 ? 0.4 : 0.6) ? 'tight' : 'normal';
+    if (inn.batters[inn.striker].balls < 4) return 'attack'; // new batter
+    if (phase === 'death') return rand() < 0.6 ? 'tight' : 'normal';
     if (phase === 'powerplay') return rand() < 0.4 ? 'attack' : 'normal';
     return 'normal';
   }

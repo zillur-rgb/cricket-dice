@@ -739,7 +739,6 @@
   function buildMatch(db, comp, f) {
     return E.createMatch({
       overs: comp.overs, maxOversPerBowler: comp.maxOversPerBowler, maxBallsPerBatter: comp.maxBallsPerBatter || null, pitch: f.pitch,
-      lastManStands: true,   // competitions: the last batter bats on alone
       teams: [engineTeam(db, comp.kind, f.home, comp), engineTeam(db, comp.kind, f.away, comp)],
     });
   }
