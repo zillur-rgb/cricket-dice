@@ -707,3 +707,19 @@ table.standings tr.po td:first-child { color: #e8a047; font-weight: 700; }
   .dr-btns { gap: 6px; flex-wrap: nowrap; width: 100%; }
   .dr-btns button, .dr-bar .primary { padding: 8px 10px; font-size: 13px; letter-spacing: 0; white-space: nowrap; flex: 1 1 auto; }
 }
+
+/* ---------- Player card: one colour per competition ---------- */
+.ps-all { --ps: var(--accent); }
+.ps-league { --ps: var(--blue); }
+.ps-cup { --ps: var(--teal); }
+table.card tr.ps-all, table.card tr.ps-league, table.card tr.ps-cup { background: color-mix(in srgb, var(--ps) 9%, transparent); }
+table.card tr[class^="ps-"] td:first-child { box-shadow: inset 3px 0 0 var(--ps); }
+.ps-lbl { color: var(--ps); font-weight: 700; white-space: nowrap; }
+.ps-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ps); margin-right: 6px; vertical-align: 1px; }
+.ps-recents { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.ps-recent { min-width: 0; }
+.ps-recent h4 { margin: 0 0 6px; font-size: 14px; color: var(--ps); text-transform: uppercase; letter-spacing: .5px; }
+.ps-recent .recent-row { border-left: 3px solid var(--ps); }
+.ps-res { display: inline-block; width: 18px; text-align: center; font-family: var(--mono); font-weight: 700; font-size: 11px; border-radius: 4px; margin-right: 6px; color: var(--ink); }
+.ps-res.w { background: #8bd16a; } .ps-res.l { background: var(--red); } .ps-res.t { background: var(--muted); }
+.ps-mom { font-size: 10px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 3px; margin-left: 4px; }

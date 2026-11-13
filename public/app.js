@@ -2160,7 +2160,7 @@
         const t = C.squadsFor(state.db, c).find(x => x.players.includes(pid));
         return `S${c.season} ${t ? esc(t.short || t.name) : '–'}`;
       });
-      return list.length ? `<div><span class="tw-label">${C.COMPS[kind].name}</span> ${list.join(' · ')}</div>` : '';
+      return list.length ? `<div class="ps-${kind}"><span class="tw-label ps-lbl"><span class="ps-dot"></span>${C.COMPS[kind].name}</span> ${list.join(' · ')}</div>` : '';
     }).join('');
     return rows ? `<div class="team-history">${rows}</div>` : '';
   }
@@ -2285,9 +2285,27 @@
 
   function openPlayer(pid) {
     const db = state.db, p = pmap()[pid], st = db.stats[pid];
-    const row = (label, s) => { s = C.fmtStats(s); return `<tr><td>${label}</td><td>${s.mat}</td><td>${s.inn}</td><td><b>${s.runs}</b></td><td>${s.balls}</td><td>${s.hsText}</td><td>${s.avg}</td><td>${s.sr}</td><td>${s.f4}</td><td>${s.s6}</td><td>${s.thirties}/${s.fifties}</td></tr>`; };
-    const brow = (label, s) => { s = C.fmtStats(s); return `<tr><td>${label}</td><td>${s.overs}</td><td>${s.maidens}</td><td>${s.runsConceded}</td><td><b>${s.wkts}</b></td><td>${s.best}</td><td>${s.bowlAvg}</td><td>${s.econ}</td><td>${s.dots}</td></tr>`; };
-    const recent = db.matches.filter(m => m.innings.some(I => I.batting.some(b => b.pid === pid) || I.dnb.includes(pid) || I.bowling.some(b => b.pid === pid))).slice(-6).reverse();
+    // Career / Länderliga / Städtepokal each get their own colour
+    const lbl = (label, k) => `<td class="ps-lbl"><span class="ps-dot"></span>${label}</td>`;
+    const row = (label, s, k) => { s = C.fmtStats(s); return `<tr class="ps-${k}">${lbl(label, k)}<td>${s.mat}</td><td>${s.inn}</td><td><b>${s.runs}</b></td><td>${s.balls}</td><td>${s.hsText}</td><td>${s.avg}</td><td>${s.sr}</td><td>${s.f4}</td><td>${s.s6}</td><td>${s.thirties}/${s.fifties}</td></tr>`; };
+    const brow = (label, s, k) => { s = C.fmtStats(s); return `<tr class="ps-${k}">${lbl(label, k)}<td>${s.overs}</td><td>${s.maidens}</td><td>${s.runsConceded}</td><td><b>${s.wkts}</b></td><td>${s.best}</td><td>${s.bowlAvg}</td><td>${s.econ}</td><td>${s.dots}</td></tr>`; };
+    const played = db.matches.filter(m => m.innings.some(I => I.batting.some(b => b.pid === pid) || I.dnb.includes(pid) || I.bowling.some(b => b.pid === pid)));
+    // last 5 matches in each competition, newest first
+    const recentHTML = (kind, label) => {
+      const list = played.filter(m => m.comp === kind).slice(-5).reverse();
+      const rows = list.map(m => {
+        let bat = '', bowl = '', side = null;
+        m.innings.forEach((I, i) => {
+          const b = I.batting.find(x => x.pid === pid); if (b) bat = `${b.r}${b.out ? '' : '*'} (${b.b})`;
+          if (b || I.dnb.includes(pid)) side = I.team;
+          const w = I.bowling.find(x => x.pid === pid); if (w) { bowl = `${w.w}/${w.r}`; if (!side && m.innings.length > 1) side = m.innings[1 - i].team; }
+        });
+        const res = m.tie && !m.winner ? '<span class="ps-res t">T</span>' : side && m.winner ? (m.winner === side ? '<span class="ps-res w">W</span>' : '<span class="ps-res l">L</span>') : '';
+        const vs = m.teams.map(t => C.teamOf(db, m.comp, t).short).join(' v ');
+        return `<button class="recent-row" data-match="${m.id}"><span>${res}S${m.season} · ${esc(vs)}${m.motm === pid ? ' <span class="ps-mom">PoM</span>' : ''}</span><span class="num">${bat || 'dnb'}${bowl ? ' · ' + bowl : ''}</span></button>`;
+      }).join('');
+      return `<div class="ps-recent ps-${kind}"><h4><span class="ps-dot"></span>${label}</h4>${rows ? `<div class="recent">${rows}</div>` : '<p class="muted" style="font-size:13px;margin:4px 0">No matches yet.</p>'}</div>`;
+    };
     const roleName = { bat: 'Batter', ar: 'All-rounder', bowl: 'Bowler' }[p.role];
     const fm = C.formOf(db, pid);
     const sgn = v => (v > 0 ? '+' : '') + v;
@@ -2307,16 +2325,12 @@
       ${teamHistoryHTML(pid)}
       <h3>Batting</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Mat</th><th>Inn</th><th>Runs</th><th>Balls</th><th>HS</th><th>Avg</th><th>SR</th><th>4s</th><th>6s</th><th>30/50</th></tr></thead><tbody>
-        ${row('Career', st.all)}${row('Länderliga', st.league)}${row('Städtepokal', st.cup)}</tbody></table></div>
+        ${row('Career', st.all, 'all')}${row('Länderliga', st.league, 'league')}${row('Städtepokal', st.cup, 'cup')}</tbody></table></div>
       <h3 style="margin-top:14px">Bowling</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Ov</th><th>M</th><th>R</th><th>W</th><th>Best</th><th>Avg</th><th>Econ</th><th>Dots</th></tr></thead><tbody>
-        ${brow('Career', st.all)}${brow('Länderliga', st.league)}${brow('Städtepokal', st.cup)}</tbody></table></div>
+        ${brow('Career', st.all, 'all')}${brow('Länderliga', st.league, 'league')}${brow('Städtepokal', st.cup, 'cup')}</tbody></table></div>
       <h3 style="margin-top:14px">Recent matches</h3>
-      ${recent.length ? `<div class="recent">${recent.map(m => {
-        let bat = '', bowl = '';
-        for (const I of m.innings) { const b = I.batting.find(x => x.pid === pid); if (b) bat = `${b.r}${b.out ? '' : '*'} (${b.b})`; const w = I.bowling.find(x => x.pid === pid); if (w) bowl = `${w.w}/${w.r}`; }
-        return `<button class="recent-row" data-match="${m.id}"><span>${esc(m.compName)} · ${esc(m.teams.map(t => C.teamOf(db, m.comp, t).short).join(' v '))}</span><span class="num">${bat || 'dnb'}${bowl ? ' · ' + bowl : ''}</span></button>`;
-      }).join('')}</div>` : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
+      <div class="ps-recents">${recentHTML('league', 'Länderliga')}${recentHTML('cup', 'Städtepokal')}</div>
       <div style="margin-top:14px"><button class="primary" id="btn-close-modal">Close</button></div>`;
     modal.hidden = false;
     document.getElementById('btn-close-modal').onclick = () => { modal.hidden = true; };
