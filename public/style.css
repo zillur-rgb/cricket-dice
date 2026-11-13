@@ -642,3 +642,27 @@ table.standings tr.po td:first-child { color: #e8a047; font-weight: 700; }
 .zone.po { color: #e8a047; }
 .po-h { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 16px; margin: 18px 0 4px; }
 .tm-finish.champ2 { font-weight: 700; }
+/* What's at stake */
+.stake { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.stake h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 14px; margin: 0 0 8px; }
+.stake h3 .muted { text-transform: none; letter-spacing: 0; font-family: inherit; font-weight: 400; }
+.stake-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stake-list li { display: grid; grid-template-columns: minmax(0, 1fr) 70px 40px; grid-template-areas: "team bar pct" "note note note"; gap: 2px 8px; align-items: center; font-size: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.stake-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.stake-list .tchip { grid-area: team; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-bar { grid-area: bar; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.st-bar span { display: block; height: 100%; background: var(--accent); }
+.st-pct { grid-area: pct; text-align: right; font-size: 13px; }
+.st-note { grid-area: note; font-size: 12px; color: var(--muted); }
+.stake-list li.in .st-note { color: var(--teal); }
+.stake-list li.out { opacity: .55; }
+.st-down { color: var(--red); white-space: nowrap; }
+.next-stake { margin-top: 8px; font-size: 13px; display: grid; gap: 2px; }
+.next-stake .cc-kicker { margin-bottom: 2px; }
+/* Season records */
+.rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.rec-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 2px; align-content: start; min-width: 0; }
+.rec-card .rec-val { font-size: 22px; margin: 0; }
+.rec-card .rec-val small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.rec-sub { font-size: 13px; min-width: 0; }
+.rec-link { justify-self: start; font-size: 12px; }

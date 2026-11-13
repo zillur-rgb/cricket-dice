@@ -565,6 +565,123 @@
   const groupTable = (db, comp, g) => table(db, comp, comp.groups[g], f => f.stage === 'group' && f.group === g);
   const round2Table = (db, comp, g) => table(db, comp, comp.groups2[g], f => f.stage === 'R2' && f.group === g);
 
+  // ---------------- Qualification race ----------------
+  // Every way the remaining matches of a group / division can end (each match 50/50; with more than
+  // 14 matches left, 6000 random runs). Teams level on points are split by their current net run rate.
+  //   zone: { top: K } (finish in the top K) — returns per team: chance %, status, what they need.
+  function race(rows, remaining, top, bottom) {
+    const ids = rows.map(r => r.id), n = ids.length;
+    const base = Object.fromEntries(rows.map(r => [r.id, r.pts]));
+    const nrr = Object.fromEntries(rows.map(r => [r.id, r.nrr]));
+    const k = remaining.length;
+    const out = Object.fromEntries(ids.map(id => [id, { in: 0, down: 0, total: 0, sureIn: true, canIn: false, sureDown: true, canDown: false,
+      winAll: { total: 0, sureIn: true, canIn: false }, loseCan: false, nrrTie: false }]));
+    const mine = Object.fromEntries(ids.map(id => [id, remaining.filter(f => f.home === id || f.away === id)]));
+    const evalOutcome = (winners) => {
+      const pts = { ...base };
+      winners.forEach(w => { pts[w] += 2; });
+      for (const id of ids) {
+        const o = out[id];
+        const above = ids.filter(x => x !== id && pts[x] > pts[id]).length;       // ahead whatever the NRR
+        const level = ids.filter(x => x !== id && pts[x] === pts[id]).length;
+        const sureInHere = above + level < top, canInHere = above < top;
+        // level on points at the cut-off: the spots left are shared (net run rate decides)
+        o.total++; o.in += sureInHere ? 1 : canInHere ? (top - above) / (level + 1) : 0;
+        if (!sureInHere) o.sureIn = false;
+        if (canInHere) o.canIn = true;
+        if (canInHere && !sureInHere) o.nrrTie = true;
+        if (bottom) {
+          const below = ids.filter(x => x !== id && pts[x] < pts[id]).length;
+          o.down += below + level < bottom ? 1 : below < bottom ? (bottom - below) / (level + 1) : 0;
+          if (below + level >= bottom) o.sureDown = false;          // could finish above the drop zone
+          if (below < bottom) o.canDown = true;
+        }
+        const wonAll = mine[id].every(f => winners[remaining.indexOf(f)] === id);
+        if (wonAll) { o.winAll.total++; if (!sureInHere) o.winAll.sureIn = false; if (canInHere) o.winAll.canIn = true; }
+        else if (canInHere) o.loseCan = true;
+      }
+    };
+    if (k <= 14) {
+      for (let mask = 0; mask < (1 << k); mask++) evalOutcome(remaining.map((f, i) => (mask >> i) & 1 ? f.home : f.away));
+    } else {
+      for (let s = 0; s < 6000; s++) evalOutcome(remaining.map(f => Math.random() < 0.5 ? f.home : f.away));
+      // with sampling, "sure" and "can't" only from points that are mathematically out of reach
+      for (const id of ids) {
+        const maxPts = base[id] + 2 * mine[id].length;
+        const o = out[id];
+        o.sureIn = false; o.sureDown = false;
+        o.canIn = ids.filter(x => x !== id && base[x] > maxPts).length < top;
+        o.winAll.sureIn = false;
+      }
+    }
+    const res = {};
+    for (const id of ids) {
+      const o = out[id];
+      const left = mine[id];
+      res[id] = {
+        chance: Math.round(100 * o.in / o.total),
+        status: o.sureIn ? 'in' : !o.canIn ? 'out' : 'race',
+        down: bottom ? (o.sureDown ? 'down' : !o.canDown ? 'safe' : Math.round(100 * o.down / o.total)) : null,
+        left: left.map(f => f.home === id ? f.away : f.home),
+        winAllSure: left.length && o.winAll.sureIn,
+        winAllCan: left.length && o.winAll.canIn,
+        loseCan: o.loseCan,
+        nrr: o.nrrTie,
+      };
+    }
+    return { teams: res, matchesLeft: k, exact: k <= 14 };
+  }
+
+  function raceFor(db, comp, scope) {
+    let rows, remaining, top, bottom = 0;
+    if (scope.type === 'group') { rows = groupTable(db, comp, scope.g); remaining = comp.fixtures.filter(f => f.stage === 'group' && f.group === scope.g && !f.result); top = 2; }
+    else if (scope.type === 'r2') { rows = round2Table(db, comp, scope.g); remaining = comp.fixtures.filter(f => f.stage === 'R2' && f.group === scope.g && !f.result); top = 2; }
+    else {
+      rows = divTable(db, comp, scope.d); remaining = comp.fixtures.filter(f => f.stage === 'league' && f.div === scope.d && !f.result);
+      top = scope.d === 1 ? 4 : 2; bottom = scope.d === 1 ? 2 : 0;
+    }
+    if (!remaining.length) return null;
+    return { ...race(rows, remaining, top, bottom), top, bottom, order: rows.map(r => r.id) };
+  }
+
+  // ---------------- Season records ----------------
+  function seasonRecords(db, compId) {
+    const ms = db.matches.filter(m => m.compId === compId);
+    if (!ms.length) return null;
+    const rec = {};
+    const better = (key, val, cmp, data) => { if (!rec[key] || cmp(val, rec[key].val)) rec[key] = { val, ...data }; };
+    const st = {};
+    for (const m of ms) {
+      const main = m.innings.filter(I => !I.superOver);
+      for (const I of main) {
+        better('highTotal', I.runs, (a, b) => a > b, { team: I.team, wkts: I.wkts, balls: I.balls, match: m.id });
+        if (main.indexOf(I) === 0 || I.wkts >= (I.batting.length + I.dnb.length) - 1) better('lowTotal', I.runs, (a, b) => a < b, { team: I.team, wkts: I.wkts, balls: I.balls, match: m.id });
+        for (const b of I.batting) {
+          better('topScore', b.r * 1000 - b.b, (a, b2) => a > b2, { pid: b.pid, r: b.r, b: b.b, out: b.out, match: m.id });
+          const s = st[b.pid] = st[b.pid] || { r: 0, b: 0, s6: 0, f4: 0, balls: 0, rc: 0, w: 0 };
+          s.r += b.r; s.b += b.b; s.s6 += b.s6; s.f4 += b.f4;
+        }
+        for (const w of I.bowling) {
+          better('bestBowl', w.w * 1000 - w.r, (a, b2) => a > b2, { pid: w.pid, w: w.w, r: w.r, balls: w.balls, match: m.id });
+          const s = st[w.pid] = st[w.pid] || { r: 0, b: 0, s6: 0, f4: 0, balls: 0, rc: 0, w: 0 };
+          s.balls += w.balls; s.rc += w.r; s.w += w.w;
+        }
+      }
+      if (main.length === 2) {
+        const [a, b] = main;
+        const margin = b.runs < a.runs && m.winner === a.team ? a.runs - b.runs : 0;
+        if (margin) better('bigWin', margin, (x, y) => x > y, { team: a.team, opp: b.team, match: m.id });
+      }
+    }
+    const max = (fn, filter) => Object.entries(st).filter(([, s]) => !filter || filter(s)).sort((x, y) => fn(y[1]) - fn(x[1]))[0];
+    const six = max(s => s.s6); if (six && six[1].s6) rec.sixes = { pid: six[0], val: six[1].s6 };
+    const sr = max(s => s.r / s.b, s => s.b >= 30); if (sr) rec.strikeRate = { pid: sr[0], val: Math.round(100 * sr[1].r / sr[1].b), balls: sr[1].b };
+    const ec = max(s => -s.rc / s.balls, s => s.balls >= 18); if (ec) rec.economy = { pid: ec[0], val: (ec[1].rc * 6 / ec[1].balls).toFixed(1), balls: ec[1].balls };
+    const pom = {}; for (const m of ms) if (m.motm) pom[m.motm] = (pom[m.motm] || 0) + 1;
+    const pm = Object.entries(pom).sort((a, b) => b[1] - a[1])[0]; if (pm) rec.pom = { pid: pm[0], val: pm[1] };
+    return rec;
+  }
+
   // ---------------- Recording a finished match ----------------
   function summarize(db, comp, fixture, match, mode) {
     const kind = comp.kind;
@@ -940,7 +1057,7 @@
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
     startCompetition, leagueTable, divTable, divisionsFor, divMoves, upgradeLeaguePlayoffs, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
-    impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf,
+    impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf, raceFor, seasonRecords,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketComp = api;

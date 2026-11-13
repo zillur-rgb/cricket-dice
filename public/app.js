@@ -6,6 +6,15 @@
   const app = document.getElementById('app');
   const modal = document.getElementById('modal');
   const modalCard = document.getElementById('modal-card');
+  // Tap outside a popup (or press Escape) to close it. Popups that need an answer stay open:
+  // choosing the next bowler and the two-devices question.
+  function closeModalSoft() {
+    if (modal.hidden || modalCard.querySelector('.bowler-list, #cf-mine')) return;
+    const cancel = modalCard.querySelector('#cb-cancel');
+    if (cancel) cancel.click(); else modal.hidden = true;
+  }
+  modal.addEventListener('click', e => { if (e.target === modal) closeModalSoft(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModalSoft(); });
 
   const state = {
     screen: 'home',
@@ -1416,6 +1425,25 @@
     </button>`;
   }
 
+  function seasonRecordsHTML(comp) {
+    const R = C.seasonRecords(state.db, comp.id);
+    if (!R) return '';
+    const pm = pmap(), kind = comp.kind;
+    const who = pid => pm[pid] ? `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>` : '';
+    const card = (label, val, sub, match) => `<div class="rec-card"><div class="cc-kicker">${label}</div><div class="rec-val">${val}</div><div class="rec-sub">${sub}</div>${match ? `<button class="plink rec-link" data-match="${match}">Scorecard</button>` : ''}</div>`;
+    const cards = [];
+    if (R.highTotal) cards.push(card('Highest total', `${R.highTotal.val}/${R.highTotal.wkts}`, `${chipTeam(kind, R.highTotal.team)} · ${E.oversStr(R.highTotal.balls)} ov`, R.highTotal.match));
+    if (R.lowTotal) cards.push(card('Lowest total', `${R.lowTotal.val}/${R.lowTotal.wkts}`, `${chipTeam(kind, R.lowTotal.team)} · ${E.oversStr(R.lowTotal.balls)} ov`, R.lowTotal.match));
+    if (R.topScore) cards.push(card('Best innings', `${R.topScore.r}${R.topScore.out ? '' : '*'} <small>(${R.topScore.b})</small>`, who(R.topScore.pid), R.topScore.match));
+    if (R.bestBowl) cards.push(card('Best bowling', `${R.bestBowl.w}/${R.bestBowl.r}`, `${who(R.bestBowl.pid)} · ${E.oversStr(R.bestBowl.balls)} ov`, R.bestBowl.match));
+    if (R.bigWin) cards.push(card('Biggest win', `${R.bigWin.val} <small>runs</small>`, `${chipTeam(kind, R.bigWin.team)} v ${esc(tname(kind, R.bigWin.opp))}`, R.bigWin.match));
+    if (R.sixes) cards.push(card('Most sixes', R.sixes.val, who(R.sixes.pid)));
+    if (R.strikeRate) cards.push(card('Best strike rate', R.strikeRate.val, `${who(R.strikeRate.pid)} · min. 30 balls`));
+    if (R.economy) cards.push(card('Best economy', R.economy.val, `${who(R.economy.pid)} · min. 3 overs`));
+    if (R.pom) cards.push(card('Most Player of the Match', R.pom.val, who(R.pom.pid)));
+    return `<h3 class="po-h" style="margin-top:22px">Season records</h3><div class="rec-grid">${cards.join('')}</div>`;
+  }
+
   function leadersHTML(statsObj, key, n, label) {
     const pm = pmap();
     const rows = Object.entries(statsObj).filter(([, s]) => s.mat)
@@ -1567,6 +1595,7 @@
           <div class="cc-kicker">Next match · ${esc(fixtureLabel(comp, next))}</div>
           <div class="next-teams">${chipTeam(kind, next.home)}<span class="vs">vs</span>${chipTeam(kind, next.away)}</div>
           <div class="muted" style="font-size:13px">${comp.overs} overs · ${esc(E.PITCHES[next.pitch].label)} pitch</div>
+          ${nextStakeHTML(comp, next)}
         </div>
         <div class="next-actions">
           <button class="primary" data-play="${next.id}">Play</button>
@@ -1590,7 +1619,8 @@
         ${race.length ? `<ol>${race.map(r => `<li><button class="plink" data-player="${r.pid}">${esc(r.name)}</button><span class="race-sub">${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.motm} PoM</span><span class="num">${r.points} <small>pts</small></span></li>`).join('')}</ol>`
           : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
         <p class="muted note">Points add up each player's match performances: runs, strike rate, wickets and economy.</p></div>
-        <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>`;
+        <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>
+        ${seasonRecordsHTML(comp)}`;
     } else if (tab === 'transfers') body = transfersHTML(kind, comp.transfers, `How the squads changed after season ${comp.transfers.fromSeason}.`);
     else body = squadsHTML(kind, comp);
 
@@ -1743,6 +1773,62 @@
   function leagueTableHTML(comp) {
     return standingsTable('league', C.leagueTable(state.db, comp), 4) + `<p class="muted note">Top 4 reach the semifinals. Win 2 pts, tie 1. Ties on points split by net run rate.</p>`;
   }
+  // ---------- What's at stake (qualification race) ----------
+  function raceScopeOf(comp, f) {
+    if (f.stage === 'group') return { type: 'group', g: f.group };
+    if (f.stage === 'R2') return { type: 'r2', g: f.group };
+    if (f.stage === 'league' && comp.divisions) return { type: 'div', d: f.div };
+    return null;
+  }
+  const zoneWord = scope => scope.type === 'div' ? (scope.d === 1 ? 'in the semifinals' : 'promoted') : 'through';
+  const namesJoin = arr => arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1];
+
+  function stakeNote(comp, scope, r, id) {
+    const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope);
+    if (t.status === 'in') return `${scope.type === 'div' && scope.d === 2 ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'} ✓`;
+    if (t.status === 'out') return 'Out of it';
+    const opp = namesJoin(t.left.map(x => tname(kind, x)));
+    if (!r.exact) return t.left.length ? `${t.left.length} match${t.left.length === 1 ? '' : 'es'} left` : 'Waits for the other results';
+    if (!t.left.length) return `Done · waits for the other results${t.nrr ? ' (net run rate may decide)' : ''}`;
+    if (t.winAllSure) return t.loseCan ? `Beat ${opp} and they're ${Z}` : `Must beat ${opp}, then they're ${Z}`;
+    if (t.winAllCan) return (t.loseCan ? `A win v ${opp} helps; also needs other results` : `Must beat ${opp} and needs other results`) + (t.nrr ? ' · net run rate may decide' : '');
+    return 'Out of it';
+  }
+
+  // One line per team in the next match: what this game means for them
+  function nextStakeHTML(comp, f) {
+    const scope = raceScopeOf(comp, f);
+    if (!scope) return '';
+    const r = C.raceFor(state.db, comp, scope);
+    if (!r || !r.exact) return '';
+    const lines = [f.home, f.away].map(id => {
+      const t = r.teams[id];
+      if (t.status !== 'race') return '';
+      return `<div><b>${esc(tname(comp.kind, id))}</b> ${t.chance}% · ${esc(stakeNote(comp, scope, r, id))}</div>`;
+    }).filter(Boolean);
+    return lines.length ? `<div class="next-stake"><span class="cc-kicker">At stake</span>${lines.join('')}</div>` : '';
+  }
+
+  function raceHTML(comp, scope) {
+    const r = C.raceFor(state.db, comp, scope);
+    if (!r) return '';
+    const kind = comp.kind;
+    const rows = r.order.map(id => {
+      const t = r.teams[id];
+      const cls = t.status === 'in' ? 'in' : t.status === 'out' ? 'out' : '';
+      const down = r.bottom && t.down !== null ? (t.down === 'down' ? '<span class="st-down">⬇ relegated</span>' : t.down === 'safe' ? '' : t.down >= 1 ? `<span class="st-down">⬇ ${t.down}%</span>` : '') : '';
+      return `<li class="${cls}">${chipTeam(kind, id)}
+        <span class="st-bar" title="${t.chance}%"><span style="width:${t.chance}%"></span></span><span class="num st-pct">${t.chance}%</span>
+        <span class="st-note">${esc(stakeNote(comp, scope, r, id))}${down ? ' ' + down : ''}</span></li>`;
+    }).join('');
+    const what = scope.type === 'div' ? (scope.d === 1 ? 'reaching the semifinals (top 4)' : 'promotion (top 2)') : 'going through (top 2)';
+    return `<div class="stake">
+      <h3>What's at stake <span class="muted">· ${r.matchesLeft} match${r.matchesLeft === 1 ? '' : 'es'} left</span></h3>
+      <ul class="stake-list">${rows}</ul>
+      <p class="muted note">Chance of ${what}${r.bottom ? '; ⬇ = risk of finishing in the bottom 2' : ''}. ${r.exact ? 'Counts every possible result' : 'From 6,000 simulated finishes'} of the remaining matches, each one 50/50; teams level on points share the spot (net run rate decides).</p>
+    </div>`;
+  }
+
   function divisionHTML(comp, d) {
     const rows = C.divTable(state.db, comp, d);
     const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
@@ -1759,11 +1845,11 @@
             : '<span class="zone up">Top 2</span> go up to the 1. Liga next season.');
     const intro = moved && moved.length ? `<p class="muted note" style="margin-top:0">${d === 1 ? 'Promoted' : 'Relegated'} last season: <b>${moved.map(esc).join(', ')}</b></p>`
       : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Bundesliga season: the ${comp.seededBy === 'table' ? 'top 8 of the last Länderliga table' : '8 strongest squads'} start in the 1. Liga.</p>` : '';
-    return intro + standingsTable('league', rows, 0, cls) + `<p class="muted note">${note} Win 2 pts. Level on points: net run rate decides.</p>`;
+    return intro + standingsTable('league', rows, 0, cls) + `<p class="muted note">${note} Win 2 pts. Level on points: net run rate decides.</p>` + (comp.stage === 'league' ? raceHTML(comp, { type: 'div', d }) : '');
   }
 
   function groupsHTML(comp) {
-    return `<div class="groups">${Object.keys(comp.groups).map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.groupTable(state.db, comp, g), 2)}</div>`).join('')}</div>
+    return `<div class="groups">${Object.keys(comp.groups).map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.groupTable(state.db, comp, g), 2)}${comp.stage === 'group' ? raceHTML(comp, { type: 'group', g }) : ''}</div>`).join('')}</div>
       <p class="muted note">${comp.format === 'v2' ? 'Top 2 in each group reach the second round.' : 'Top 2 in each group reach the Round of 16.'}</p>`;
   }
 
@@ -1773,7 +1859,7 @@
         <div class="groups"><div><h3>Group X</h3><p class="muted note">Winners of groups A, C and E, runners-up of B and D</p></div>
         <div><h3>Group Y</h3><p class="muted note">Winners of groups B and D, runners-up of A, C and E</p></div></div>`;
     }
-    return `<div class="groups">${['X', 'Y'].map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.round2Table(state.db, comp, g), 2)}</div>`).join('')}</div>
+    return `<div class="groups">${['X', 'Y'].map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.round2Table(state.db, comp, g), 2)}${comp.stage === 'R2' ? raceHTML(comp, { type: 'r2', g }) : ''}</div>`).join('')}</div>
       <p class="muted note">Top 2 in each group reach the semifinals: X1 v Y2 and Y1 v X2.</p>`;
   }
 
