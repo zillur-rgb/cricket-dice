@@ -826,6 +826,7 @@
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. Länderliga: the other 5 bowl one over each. Städtepokal: the other 4 share the 6 overs, max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
+        <li><b>The draft</b> (between seasons): each team keeps its 2 best performers, everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. A batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out).</li>
       </ul>
@@ -1444,13 +1445,22 @@
     return `<h3 class="po-h" style="margin-top:22px">Season records</h3><div class="rec-grid">${cards.join('')}</div>`;
   }
 
-  function leadersHTML(statsObj, key, n, label) {
+  // team a player belongs to: in that season's squads (comp), or today's squads (kind)
+  function playerTeamFn(kind, comp) {
+    const teams = comp ? C.squadsFor(state.db, comp) : state.db.teams[kind];
+    const map = {};
+    for (const t of teams) for (const pid of t.players) map[pid] = t;
+    return pid => map[pid] || null;
+  }
+  const teamTag = t => t ? `<span class="lt"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span>` : '';
+
+  function leadersHTML(statsObj, key, n, label, teamFn) {
     const pm = pmap();
     const rows = Object.entries(statsObj).filter(([, s]) => s.mat)
       .sort((a, b) => key === 'wkts' ? (b[1].wkts - a[1].wkts || a[1].runsConceded - b[1].runsConceded) : (b[1].runs - a[1].runs || a[1].balls - b[1].balls))
       .slice(0, n);
     if (!rows.length) return `<div class="lead"><h3>${label}</h3><p class="muted" style="font-size:13px">No matches yet.</p></div>`;
-    return `<div class="lead"><h3>${label}</h3><ol>${rows.map(([pid, s]) => `<li><button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button><span class="num">${key === 'wkts' ? `${s.wkts} <small>wkts</small>` : `${s.runs} <small>runs</small>`}</span></li>`).join('')}</ol></div>`;
+    return `<div class="lead"><h3>${label}</h3><ol>${rows.map(([pid, s]) => `<li><span class="ln"><button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>${teamFn ? teamTag(teamFn(pid)) : ''}</span><span class="num">${key === 'wkts' ? `${s.wkts} <small>wkts</small>` : `${s.runs} <small>runs</small>`}</span></li>`).join('')}</ol></div>`;
   }
 
   // ---------- Home leaderboards ----------
@@ -1470,14 +1480,16 @@
     if (when === 'all') {
       const st = Object.fromEntries(Object.entries(db.stats).map(([k, v]) => [k, v[kind]]));
       const n = db.competitions.filter(x => x.kind === kind).length;
-      return `<p class="muted lb-note">${name}, all ${n} season${n === 1 ? '' : 's'}</p>
-        <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs')}${leadersHTML(st, 'wkts', 5, 'Most wickets')}</div>`;
+      const tf = playerTeamFn(kind);
+      return `<p class="muted lb-note">${name}, all ${n} season${n === 1 ? '' : 's'} · current teams</p>
+        <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs', tf)}${leadersHTML(st, 'wkts', 5, 'Most wickets', tf)}</div>`;
     }
     const comp = C.activeComp(db, kind) || C.lastComp(db, kind);
     if (!comp) return `<p class="muted lb-note">No ${name} season yet.</p>`;
     const st = C.competitionStats(db, comp.id);
+    const tf = playerTeamFn(kind, comp);
     return `<p class="muted lb-note">${name} · Season ${comp.season}${comp.status === 'complete' ? ' (finished)' : ''}</p>
-      <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs')}${leadersHTML(st, 'wkts', 5, 'Most wickets')}</div>`;
+      <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs', tf)}${leadersHTML(st, 'wkts', 5, 'Most wickets', tf)}</div>`;
   }
 
   function recentMatchesHTML() {
@@ -1489,19 +1501,22 @@
       const T = id => C.teamOf(db, m.comp, id) || { name: id, short: id, color: '#888' };
       const score = I => `<div class="r3-team"><span class="dot" style="background:${T(I.team).color}"></span><span class="r3-name" data-team="${m.comp}:${I.team}" role="button" tabindex="0">${esc(T(I.team).name)}</span><span class="num">${I.runs}/${I.wkts} <small>(${E.oversStr(I.balls)})</small></span></div>`;
       let bat = null, bowl = null;
-      for (const I of m.innings) {
-        for (const b of I.batting) if (!bat || b.r > bat.r || (b.r === bat.r && b.b < bat.b)) bat = b;
-        for (const b of I.bowling) if (!bowl || b.w > bowl.w || (b.w === bowl.w && b.r < bowl.r)) bowl = b;
-      }
+      const side = {};   // player -> team in this match
+      m.innings.forEach((I, i) => {
+        const other = m.innings.length > 1 ? m.innings[1 - i] && m.innings[1 - i].team : null;
+        for (const b of I.batting) { side[b.pid] = I.team; if (!bat || b.r > bat.r || (b.r === bat.r && b.b < bat.b)) bat = b; }
+        for (const b of I.bowling) { if (other) side[b.pid] = other; if (!bowl || b.w > bowl.w || (b.w === bowl.w && b.r < bowl.r)) bowl = b; }
+      });
+      const tm = pid => side[pid] ? `<span class="r3-tm">${esc(T(side[pid]).short || T(side[pid]).name)}</span>` : '';
       const stage = C.STAGE_LABEL[m.stage] || m.stage;
       return `<div class="r3">
         <div class="cc-kicker">${esc(m.compName)} · S${m.season} · ${esc(stage)}</div>
         ${m.innings.map(score).join('')}
         <div class="r3-result">${esc(m.result)}</div>
-        ${m.motm ? `<div class="r3-mom"><span class="r3-lbl">Player of the match</span><button class="plink" data-player="${m.motm}">${nm(m.motm)}</button><span class="num">${esc(C.figuresLine(m.innings, m.motm))}</span></div>` : ''}
+        ${m.motm ? `<div class="r3-mom"><span class="r3-lbl">Player of the match</span><button class="plink" data-player="${m.motm}">${nm(m.motm)}</button>${tm(m.motm)}<span class="num">${esc(C.figuresLine(m.innings, m.motm))}</span></div>` : ''}
         <div class="r3-best">
-          ${bat ? `<div><span class="r3-lbl">Most runs</span><button class="plink" data-player="${bat.pid}">${nm(bat.pid)}</button> <span class="num">${bat.r}${bat.out ? '' : '*'} (${bat.b})</span></div>` : ''}
-          ${bowl ? `<div><span class="r3-lbl">Most wickets</span><button class="plink" data-player="${bowl.pid}">${nm(bowl.pid)}</button> <span class="num">${bowl.w}/${bowl.r}</span></div>` : ''}
+          ${bat ? `<div><span class="r3-lbl">Most runs</span><button class="plink" data-player="${bat.pid}">${nm(bat.pid)}</button>${tm(bat.pid)} <span class="num">${bat.r}${bat.out ? '' : '*'} (${bat.b})</span></div>` : ''}
+          ${bowl ? `<div><span class="r3-lbl">Most wickets</span><button class="plink" data-player="${bowl.pid}">${nm(bowl.pid)}</button>${tm(bowl.pid)} <span class="num">${bowl.w}/${bowl.r}</span></div>` : ''}
         </div>
         <button class="plink r3-card" data-match="${m.id}">Scorecard →</button>
       </div>`;
@@ -1570,7 +1585,7 @@
       : comp.format === 'v2'
         ? [['groups', 'Groups'], ['round2', 'Second round'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
         : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
-    const tabs = comp.transfers ? baseTabs.concat([['transfers', 'Transfers']]) : baseTabs;
+    const tabs = comp.transfers ? baseTabs.concat([['transfers', comp.transfers.picks ? 'Draft' : 'Transfers']]) : baseTabs;
     let tab = state.compTab[kind];
     if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
     const done = comp.fixtures.filter(f => f.result).length;
@@ -1587,7 +1602,7 @@
         ${comp.summary.div2Champion ? `<div class="muted" style="font-size:14px;margin-top:4px">🥈 2. Liga champions: <b>${esc(comp.summary.div2Champion)}</b> (${esc(comp.summary.div2Final.result)})</div>` : ''}
         ${comp.summary.promoted ? `<div class="muted" style="font-size:14px;margin-top:4px">⬆ Up: <b>${comp.summary.promoted.map(esc).join(', ')}</b> · ⬇ Down: <b>${comp.summary.relegated.map(esc).join(', ')}</b></div>` : ''}</div>
         ${comp.summary.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
-        <button class="primary" id="btn-new-season">Start season ${comp.season + 1}</button>
+        <button class="primary" id="btn-new-season">Draft for season ${comp.season + 1}</button>
       </div>`;
     } else {
       top = `<div class="next">
@@ -1615,13 +1630,14 @@
     else if (tab === 'leaders') {
       const st = C.competitionStats(db, comp.id);
       const race = C.seriesRace(db, comp.id).slice(0, 5);
+      const tf = playerTeamFn(kind, comp);
       body = `<div class="lead race"><h3>${comp.status === 'complete' ? 'Player of the series' : 'Player of the series race'}</h3>
-        ${race.length ? `<ol>${race.map(r => `<li><button class="plink" data-player="${r.pid}">${esc(r.name)}</button><span class="race-sub">${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.motm} PoM</span><span class="num">${r.points} <small>pts</small></span></li>`).join('')}</ol>`
+        ${race.length ? `<ol>${race.map(r => `<li><span class="ln"><button class="plink" data-player="${r.pid}">${esc(r.name)}</button>${teamTag(tf(r.pid))}</span><span class="race-sub">${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.motm} PoM</span><span class="num">${r.points} <small>pts</small></span></li>`).join('')}</ol>`
           : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
         <p class="muted note">Points add up each player's match performances: runs, strike rate, wickets and economy.</p></div>
-        <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season')}${leadersHTML(st, 'wkts', 10, 'Most wickets this season')}</div>
+        <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season', tf)}${leadersHTML(st, 'wkts', 10, 'Most wickets this season', tf)}</div>
         ${seasonRecordsHTML(comp)}`;
-    } else if (tab === 'transfers') body = transfersHTML(kind, comp.transfers, `How the squads changed after season ${comp.transfers.fromSeason}.`);
+    } else if (tab === 'transfers') body = draftHTML(kind, comp.transfers);
     else body = squadsHTML(kind, comp);
 
     app.innerHTML = `<section class="comp">
@@ -1678,6 +1694,7 @@
   function openTransfers(kind) {
     state.compKind = kind;
     state.transferPlan = C.planTransfers(state.db, kind);
+    state.draftShown = 0; stopDraftAuto();
     if (!state.transferPlan) { C.startCompetition(state.db, kind); save(); render(); return; }
     state.screen = 'transfers';
     render();
@@ -1700,29 +1717,127 @@
       ${plan.unsigned && plan.unsigned.length ? `<p class="muted note">Without a team this season: ${plan.unsigned.map(pid => `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>`).join(', ')}</p>` : ''}`;
   }
 
+  // ---------- The draft ----------
+  // A draft is fully worked out when the window opens (same season → same draft); the draft room
+  // just reveals the picks one by one.
+  const draftForm = d => d >= 5 ? ' <span class="form-ic" title="Good season: draft rating up">🔥</span>' : d <= -5 ? ' <span class="form-ic" title="Poor season: draft rating down">❄️</span>' : '';
+  const draftNum = x => `<span class="dr-num" title="Draft rating ${x.draft}: overall ${x.rating} ${x.delta >= 0 ? '+' : '−'} ${Math.abs(x.delta)} for last season">${x.draft}</span>`;
+  function draftLine(x) {
+    if (!x) return '';
+    if (!x.mat) return 'no matches last season';
+    return `${x.runs} run${x.runs === 1 ? '' : 's'} · ${x.wkts} wkt${x.wkts === 1 ? '' : 's'}${x.motm ? ` · ${x.motm} PoM` : ''} in ${x.mat} match${x.mat === 1 ? '' : 'es'}`;
+  }
+
+  // the draft's parts after `shown` picks
+  function draftParts(kind, plan, shown) {
+    const pm = pmap(), I = plan.info || {}, picks = plan.picks || [];
+    const team = id => C.teamOf(state.db, kind, id) || { name: id, short: id, color: '#888' };
+    const short = id => id ? esc(team(id).short || team(id).name) : 'no team';
+    const done = shown >= picks.length;
+    const next = picks[shown];
+    const rounds = picks.length ? picks[picks.length - 1].round : 0;
+    const status = done
+      ? `<div class="dr-pick-no">Draft complete · ${picks.length} picks</div><div class="muted">Every squad is full. Draft ratings are gone again: from now on matches use the normal ratings.</div>`
+      : `<div class="dr-pick-no">Pick ${shown + 1} of ${picks.length} · Round ${next.round} of ${rounds}</div>
+         <div class="dr-clock">On the clock: ${chipTeam(kind, next.team)}</div>`;
+    const feed = picks.slice(0, shown).reverse().map(x => {
+      const p = pm[x.pid], d = I[x.pid];
+      return `<li class="${x.n === shown ? 'dr-new' : ''}">
+        <span class="dr-n">R${x.round} · #${x.n}</span>
+        <span class="dr-main"><span class="dr-team"><span class="dot" style="background:${team(x.team).color}"></span>${esc(team(x.team).name)}</span> select
+          <button class="plink" data-player="${x.pid}">${esc(p.name)}</button>${d ? draftForm(d.delta) : ''}
+          <span class="dr-sub">${d ? `draft ${d.draft} (overall ${d.rating}) · ` : ''}bat ${p.bat} · bowl ${p.bowl} · ${d ? draftLine(d) : ''} · ${x.from === x.team ? 'back again' : 'from ' + short(x.from)}${x.need ? ` · needed a ${x.need === 'bat' ? 'batter' : 'bowler'}` : ''}</span></span>
+      </li>`;
+    }).join('');
+    const pickedSet = new Set(picks.slice(0, shown).map(x => x.pid));
+    const left = picks.slice(shown).map(x => x.pid).concat(plan.unsigned || []).filter(pid => !pickedSet.has(pid))
+      .sort((a, b) => ((I[b] && I[b].draft) || 0) - ((I[a] && I[a].draft) || 0));
+    const pool = left.slice(0, 15).map(pid => {
+      const p = pm[pid], d = I[pid];
+      return `<li><span class="dr-pl"><button class="plink" data-player="${pid}">${esc(p.name)}</button>${d ? draftForm(d.delta) : ''}<span class="dr-sub">${d && d.role === 'bat' ? 'batter' : 'bowler'} · bat ${p.bat} · bowl ${p.bowl} · ${draftLine(d)}</span></span>${d ? draftNum(d) : ''}</li>`;
+    }).join('');
+    const size = C.COMPS[kind].squad;
+    const squads = plan.teams.map(t => {
+      const got = picks.slice(0, shown).filter(x => x.team === t.id);
+      const row = (pid, tag) => `<li><button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button><span class="rt">${tag}</span></li>`;
+      const empty = Math.max(0, size - t.kept.length - got.length);
+      return `<div class="tw-team ${next && next.team === t.id ? 'dr-on' : ''}">
+        <h3>${chipTeam(kind, t.id)}</h3>
+        <ul>${t.kept.map(pid => row(pid, 'kept')).join('')}${got.map(x => row(x.pid, `R${x.round}${I[x.pid] ? ' · ' + I[x.pid].draft : ''}`)).join('')}${'<li class="dr-empty">—</li>'.repeat(empty)}</ul>
+      </div>`;
+    }).join('');
+    return { status, feed, pool, poolLeft: left.length, squads, done };
+  }
+
+  // static view of a finished draft (the season's Draft tab)
+  function draftHTML(kind, plan) {
+    if (!plan.picks) return transfersHTML(kind, plan, `How the squads changed after season ${plan.fromSeason}.`);
+    const P = draftParts(kind, plan, plan.picks.length);
+    const pm = pmap();
+    return `<p class="muted note" style="margin-top:0">The draft after season ${plan.fromSeason}: each team kept ${plan.keep || 2}, then ${plan.picks.length} picks in snake order.</p>
+      <div class="dr-cols"><div><h3 class="po-h">Picks</h3><ol class="dr-feed">${P.feed.replace(/ class="dr-new"/g, '')}</ol></div>
+      <div><h3 class="po-h">Squads</h3><div class="tw-grid dr-squads">${P.squads}</div>
+      ${plan.unsigned && plan.unsigned.length ? `<p class="muted note">Not picked: ${plan.unsigned.map(pid => `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>`).join(', ')}</p>` : ''}</div></div>`;
+  }
+
+  function stopDraftAuto() { if (state.draftTimer) { clearInterval(state.draftTimer); state.draftTimer = null; } }
+
   function renderTransfers() {
     const plan = state.transferPlan, kind = plan.kind, cfg = C.COMPS[kind];
-    const newPer = cfg.squad - 3;
-    app.innerHTML = `<section class="comp">
-      <div class="comp-head"><div><div class="cc-kicker">${cfg.name} · before season ${plan.toSeason}</div><h1>Transfer window</h1>
-        <div class="muted">Each team keeps its 3 best performers from season ${plan.fromSeason}. Everyone else is released, and the ${newPer} open spots per team are filled from the released players: random, but weaker teams pick first so no side is left hopeless.</div></div></div>
-      <div class="panel tw-actions">
-        <button class="primary" id="tw-start">Start season ${plan.toSeason}</button>
-        <button class="secondary" id="tw-cancel">Not now</button>
+    if (!plan.picks) { stopDraftAuto(); return; }
+    if (state.draftShown == null) state.draftShown = 0;
+    app.innerHTML = `<section class="comp draft">
+      <div class="comp-head"><div><div class="cc-kicker">${cfg.name} · before season ${plan.toSeason}</div><h1>The draft</h1>
+        <div class="muted dr-intro">Each team kept its ${plan.keep} best performers from season ${plan.fromSeason}. Everyone else is in the draft. The team with the weakest squad picks first, snake order. Players are ranked by a <b>draft rating</b>: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season. It only counts for the draft: once the squads are full, everyone plays with their normal ratings again.</div></div></div>
+      <div class="panel dr-bar">
+        <div id="dr-status"></div>
+        <div class="dr-btns">
+          <button class="primary" id="dr-next">Next pick</button>
+          <button class="secondary" id="dr-auto">▶ Auto</button>
+          <button class="secondary" id="dr-skip">Skip to end</button>
+          <button class="primary" id="tw-start" hidden>Start season ${plan.toSeason}</button>
+          <button class="secondary" id="tw-cancel">Not now</button>
+        </div>
       </div>
-      <div class="panel">${transfersHTML(kind, plan, '')}</div>
+      <div class="dr-cols">
+        <div class="panel"><h3 class="po-h">Picks</h3><ol class="dr-feed" id="dr-feed"></ol></div>
+        <div class="panel"><h3 class="po-h">Best available <span class="muted" id="dr-left"></span></h3><ol class="dr-pool" id="dr-pool"></ol></div>
+      </div>
+      <div class="panel"><h3 class="po-h">Squads</h3><div class="tw-grid dr-squads" id="dr-squads"></div></div>
     </section>`;
-    document.getElementById('tw-start').onclick = async () => {
+    const $ = id => document.getElementById(id);
+    const update = () => {
+      const P = draftParts(kind, plan, state.draftShown);
+      $('dr-status').innerHTML = P.status;
+      $('dr-feed').innerHTML = P.feed || '<li class="muted dr-wait">No picks yet. Tap “Next pick” or “Auto”.</li>';
+      $('dr-pool').innerHTML = P.pool || '<li class="muted">Nobody left.</li>';
+      $('dr-left').textContent = P.poolLeft ? `· ${P.poolLeft} left` : '';
+      $('dr-squads').innerHTML = P.squads;
+      for (const id of ['dr-next', 'dr-auto', 'dr-skip']) $(id).hidden = P.done;
+      $('tw-start').hidden = !P.done;
+      $('dr-auto').textContent = state.draftTimer ? '❚❚ Pause' : '▶ Auto';
+      if (P.done) stopDraftAuto();
+      bindPlayerLinks(app);
+    };
+    const step = () => { if (state.screen !== 'transfers' || state.transferPlan !== plan) return stopDraftAuto(); if (state.draftShown < plan.picks.length) state.draftShown++; update(); };
+    $('dr-next').onclick = () => { stopDraftAuto(); step(); };
+    $('dr-auto').onclick = () => {
+      if (state.draftTimer) stopDraftAuto(); else state.draftTimer = setInterval(step, 1000);
+      update();
+    };
+    $('dr-skip').onclick = () => { stopDraftAuto(); state.draftShown = plan.picks.length; update(); };
+    $('tw-start').onclick = async () => {
+      stopDraftAuto();
       const comp = C.applyTransfers(state.db, plan);
-      state.transferPlan = null;
+      state.transferPlan = null; state.draftShown = null;
       state.compTab[kind] = kind === 'league' ? 'div1' : 'groups';
       state.screen = 'comp';
       render();
       await save();
       showToast(`Season ${comp.season} started with the new squads`);
     };
-    document.getElementById('tw-cancel').onclick = () => { state.transferPlan = null; openComp(kind); };
-    bindPlayerLinks();
+    $('tw-cancel').onclick = () => { stopDraftAuto(); state.transferPlan = null; state.draftShown = null; openComp(kind); };
+    update();
   }
 
   async function cancelSeasonNow(comp) {

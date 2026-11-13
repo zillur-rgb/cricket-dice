@@ -343,41 +343,98 @@
   }
   const snapshotSquads = teams => Object.fromEntries(teams.map(t => [t.id, t.players.slice()]));
 
-  // ---------------- Transfers between seasons ----------------
-  // Every team keeps its 3 best performers of last season (by Player of the Series points);
-  // everyone else goes into a pool, and the open spots are filled by a "random but balanced"
-  // draft: the pool is ranked by rating plus a big random factor, and teams pick in snake
-  // order, weakest kept trio first.
-  const KEEP = 3;
+  // ---------------- Transfers between seasons: the draft ----------------
+  // Every team keeps its 2 best performers of last season (by Player of the Series points);
+  // everyone else goes into the pool. Each pool player gets a temporary DRAFT RATING: their overall
+  // rating (average of bat and bowl) moved up or down by how well they played last season
+  // (points per match vs the season average, weighted by matches played, capped at ±15).
+  // Teams then pick in snake order, the side with the weakest real squad first, always taking the
+  // best draft rating left unless they still need batters or bowlers to make a playable side. The draft rating is only
+  // used here: once squads are full, matches use the normal ratings again.
+  const KEEP = 2;
+  const DRAFT_CAP = 15;
+  // same finished season → same draft (so leaving and coming back shows the same picks)
+  const draftSeed = (kind, compId) => { let h = 2166136261; for (const ch of kind + ':' + compId) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0; return h || 7; };
+
+  function draftRatings(db, last) {
+    const pm = playerMap(db);
+    const race = seriesRace(db, last.id);
+    const per = race.filter(x => x.mat).map(x => x.points / x.mat);
+    const mean = per.length ? per.reduce((a, b) => a + b, 0) / per.length : 0;
+    const sd = per.length > 1 ? Math.sqrt(per.reduce((a, b) => a + (b - mean) ** 2, 0) / per.length) || 1 : 1;
+    const full = Math.max(1, ...race.map(x => x.mat));
+    const byPid = Object.fromEntries(race.map(x => [x.pid, x]));
+    const out = {};
+    for (const p of db.players) {
+      const x = byPid[p.id];
+      let delta = 0;
+      if (x && x.mat) {
+        const z = (x.points / x.mat - mean) / sd;
+        const weight = Math.min(1, x.mat / Math.min(4, full));      // 1–2 matches count for less
+        delta = (z * 8 + (x.motm || 0)) * weight;                    // half performance, half real rating
+        delta = Math.max(-DRAFT_CAP, Math.min(DRAFT_CAP, delta));
+      }
+      out[p.id] = {
+        // shown as one number: overall (average of bat and bowl) plus form; the ranking uses the same
+        rating: Math.round((p.bat + p.bowl) / 2), delta: Math.round(delta), draft: Math.round((p.bat + p.bowl) / 2 + Math.round(delta)),
+        real: p.bat + p.bowl,                            // true strength: decides who picks first
+        value: p.bat + p.bowl + Math.round(delta) * 2,   // draft value: who gets picked first (both skills + form)
+        role: p.bat >= p.bowl ? 'bat' : 'bowl',
+        mat: x ? x.mat : 0, runs: x ? x.runs : 0, wkts: x ? x.wkts : 0, motm: x ? x.motm : 0, points: x ? x.points : 0,
+      };
+    }
+    return out;
+  }
+
   function planTransfers(db, kind, seed) {
     const last = lastComp(db, kind);
     if (!last || last.status !== 'complete') return null;
-    const r = rng(seed || (Date.now() % 1e6) + 17);
-    const pm = playerMap(db);
-    const ovr = pid => pm[pid].bat + pm[pid].bowl;
+    const r = rng(seed || draftSeed(kind, last.id));
+    const info = draftRatings(db, last);
     const points = {};
     for (const x of seriesRace(db, last.id)) points[x.pid] = x.points;
     const teams = db.teams[kind];
     const squadSize = COMPS[kind].squad;
+    // every side needs two real openers and at least three real bowlers; the rest is best available
+    const wantBat = 2, wantBowl = 3;
     const plan = teams.map(t => {
-      const ranked = t.players.slice().sort((a, b) => (points[b] || 0) - (points[a] || 0) || ovr(b) - ovr(a));
+      const ranked = t.players.slice().sort((a, b) => (points[b] || 0) - (points[a] || 0) || info[b].value - info[a].value);
       return { id: t.id, kept: ranked.slice(0, KEEP), released: ranked.slice(KEEP), signed: [] };
     });
     const taken = new Set(plan.flatMap(t => t.kept));
+    // a little luck so the order isn't fully predictable
     const pool = shuffle(db.players.map(p => p.id).filter(pid => !taken.has(pid)), r)
-      .map(pid => ({ pid, score: ovr(pid) + (r() - 0.5) * 40 }))
+      .map(pid => ({ pid, score: info[pid].value + (r() - 0.5) * 10 }))
       .sort((a, b) => b.score - a.score);
-    const strength = t => t.kept.concat(t.signed).reduce((s, pid) => s + ovr(pid), 0);
-    for (let round = 0; round < squadSize - KEEP; round++) {
-      const order = plan.slice().sort((a, b) => strength(a) - strength(b));
-      if (round % 2) order.reverse();
-      for (const t of order) { const pick = pool.shift(); if (pick) t.signed.push(pick.pid); }
-    }
+    const squad = t => t.kept.concat(t.signed.map(s => s.pid));
+    // pick order goes by real strength, so a hot streak can't make a side stronger than it looks
+    const strength = t => squad(t).reduce((s, pid) => s + info[pid].real, 0);
+    const picks = [];
     const was = {};
     for (const t of teams) for (const pid of t.players) was[pid] = t.id;
+    const rounds = squadSize - KEEP;
+    for (let round = 0; round < rounds; round++) {
+      const order = plan.slice().sort((a, b) => strength(a) - strength(b));
+      if (round % 2) order.reverse();
+      for (const t of order) {
+        if (!pool.length) break;
+        const have = squad(t);
+        const bats = have.filter(pid => info[pid].role === 'bat').length;
+        const bowls = have.length - bats;
+        const slots = squadSize - have.length;
+        let need = null;                                   // must fill a role with the spots left?
+        if (wantBat - bats >= slots) need = 'bat';
+        else if (wantBowl - bowls >= slots) need = 'bowl';
+        let i = need ? pool.findIndex(x => info[x.pid].role === need) : 0;
+        if (i < 0) i = 0;
+        const pick = pool.splice(i, 1)[0];
+        t.signed.push({ pid: pick.pid, from: was[pick.pid] || null });
+        picks.push({ n: picks.length + 1, round: round + 1, team: t.id, pid: pick.pid, from: was[pick.pid] || null, need });
+      }
+    }
     return {
-      kind, fromSeason: last.season, toSeason: last.season + 1, points,
-      teams: plan.map(t => ({ ...t, signed: t.signed.map(pid => ({ pid, from: was[pid] || null })) })),
+      kind, fromSeason: last.season, toSeason: last.season + 1, points, keep: KEEP,
+      teams: plan, picks, info,
       unsigned: pool.map(x => x.pid),
     };
   }
@@ -396,7 +453,10 @@
       if (kind === 'league') p.state = t ? t.id : null; else p.city = t ? t.id : p.city;
     }
     const comp = startCompetition(db, kind);
-    comp.transfers = { fromSeason: plan.fromSeason, teams: plan.teams, unsigned: plan.unsigned };
+    // the draft is kept with the season so it can be watched again later (only the players involved)
+    const used = new Set(plan.picks ? plan.picks.map(x => x.pid).concat(plan.teams.flatMap(t => t.kept)) : []);
+    const info = plan.info ? Object.fromEntries(Object.entries(plan.info).filter(([pid]) => used.has(pid))) : undefined;
+    comp.transfers = { fromSeason: plan.fromSeason, teams: plan.teams, unsigned: plan.unsigned, keep: plan.keep, picks: plan.picks, info };
     return comp;
   }
   function activeComp(db, kind) { return db.competitions.find(c => c.kind === kind && c.status !== 'complete'); }
@@ -1116,7 +1176,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, divTable, divisionsFor, divMoves, upgradeLeaguePlayoffs, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
+    startCompetition, leagueTable, divTable, divisionsFor, divMoves, upgradeLeaguePlayoffs, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, draftRatings, renamePlayer,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf, raceFor, seasonRecords,
   };
