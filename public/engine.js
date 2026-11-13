@@ -658,7 +658,7 @@
       const rrr = (need / Math.max(ballsLeft, 1)) * 6;
       if (rrr < 6) return 'attack';    // need wickets to win
       // squeeze them; in short formats only now and then, otherwise the chase can't get its boundaries
-      if (rrr > 10) return match.overs > 10 || rand() < 0.5 ? 'tight' : 'normal';
+      if (rrr > 10) return match.overs > 10 || rand() < (match.secondOverPenalty ? 0.3 : 0.5) ? 'tight' : 'normal';   // cup: 30%, league: 50% keeps chases ~50/50
     }
     if (inn.batters[inn.striker].balls < 4) return 'attack'; // new batter
     if (phase === 'death') return rand() < 0.6 ? 'tight' : 'normal';

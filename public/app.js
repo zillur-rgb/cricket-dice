@@ -1525,7 +1525,7 @@
     if (!comp) {
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
-          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Länderliga champion, the 2. Liga final the 2. Liga champion. Three teams go down and three come up: the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up; the 1. Liga 5th v 6th play-off loser goes down and the 2. Liga 3rd v 4th play-off winner goes up. Last man stands: when everyone else is out, the last batter bats on alone.`
+          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Länderliga champion, the 2. Liga final the 2. Liga champion. The bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up. The 1. Liga's 6th plays the 2. Liga's 3rd in a play-off, and the winner plays in the 1. Liga next season. Last man stands: when everyone else is out, the last batter bats on alone.`
           : `20 German cities, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
@@ -1747,13 +1747,15 @@
     const rows = C.divTable(state.db, comp, d);
     const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
     const moved = prev && prev.summary ? (d === 1 ? prev.summary.promoted : prev.summary.relegated) : null;
-    const po = comp.playoffs;
-    const cls = d === 1 ? (i, n) => i < 4 ? 'q' : i >= n - 2 ? 'rel' : po && (i === 4 || i === 5) ? 'po' : ''
-      : (i) => i < 2 ? 'up' : po && (i === 2 || i === 3) ? 'po' : '';
+    const po = comp.playoffs, bl = po === 2;
+    const cls = d === 1 ? (i, n) => i < 4 ? 'q' : i >= n - 2 ? 'rel' : (bl ? i === 5 : po && (i === 4 || i === 5)) ? 'po' : ''
+      : (i) => i < 2 ? 'up' : (bl ? i === 2 : po && (i === 2 || i === 3)) ? 'po' : '';
     const note = d === 1
-      ? (po ? '<span class="zone q">Top 4</span> play the semifinals for the title. <span class="zone po">5th v 6th</span> play a relegation play-off: the loser goes down. <span class="zone rel">Bottom 2</span> go down to the 2. Liga.'
+      ? (bl ? '<span class="zone q">Top 4</span> play the semifinals for the title. <span class="zone po">6th</span> plays the 2. Liga\'s 3rd in a play-off: the winner plays in the 1. Liga next season. <span class="zone rel">Bottom 2</span> go down to the 2. Liga.'
+        : po ? '<span class="zone q">Top 4</span> play the semifinals for the title. <span class="zone po">5th v 6th</span> play a relegation play-off: the loser goes down. <span class="zone rel">Bottom 2</span> go down to the 2. Liga.'
             : '<span class="zone q">Top 4</span> play the semifinals. <span class="zone rel">Bottom 2</span> go down to the 2. Liga next season.')
-      : (po ? '<span class="zone up">Top 2</span> go up to the 1. Liga. <span class="zone po">3rd v 4th</span> play a promotion play-off: the winner goes up too. The top 4 also play semifinals and a final for the 2. Liga title.'
+      : (bl ? '<span class="zone up">Top 2</span> go up to the 1. Liga. <span class="zone po">3rd</span> plays the 1. Liga\'s 6th in a play-off: the winner plays in the 1. Liga next season. The top 4 also play semifinals and a final for the 2. Liga title.'
+        : po ? '<span class="zone up">Top 2</span> go up to the 1. Liga. <span class="zone po">3rd v 4th</span> play a promotion play-off: the winner goes up too. The top 4 also play semifinals and a final for the 2. Liga title.'
             : '<span class="zone up">Top 2</span> go up to the 1. Liga next season.');
     const intro = moved && moved.length ? `<p class="muted note" style="margin-top:0">${d === 1 ? 'Promoted' : 'Relegated'} last season: <b>${moved.map(esc).join(', ')}</b></p>`
       : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Bundesliga season: the ${comp.seededBy === 'table' ? 'top 8 of the last Länderliga table' : '8 strongest squads'} start in the 1. Liga.</p>` : '';
@@ -1798,11 +1800,13 @@
         <h3 class="po-h">2. Liga · title</h3>
         <p class="muted note" style="margin-top:0">Semifinals: 1st v 4th and 2nd v 3rd of the 2. Liga, then the 2. Liga final.</p>
         <div class="bracket">${col('SF2', 'Semifinals', 2)}${col('F2', 'Final', 1)}</div>
-        <h3 class="po-h">Play-offs</h3>
-        <div class="bracket">
+        <h3 class="po-h">${comp.playoffs === 2 ? 'Play-off' : 'Play-offs'}</h3>
+        ${comp.playoffs === 2 ? `<div class="bracket">
+          <div class="bcol"><h3>1. Liga 6th v 2. Liga 3rd</h3><p class="muted note" style="margin:0 0 6px">The winner plays in the 1. Liga next season, the loser in the 2. Liga</p><div class="bcol-list">${koMatchHTML(comp, po('x'))}</div></div>
+        </div>` : `<div class="bracket">
           <div class="bcol"><h3>Relegation · 1. Liga 5th v 6th</h3><p class="muted note" style="margin:0 0 6px">Loser goes down</p><div class="bcol-list">${koMatchHTML(comp, po('rel'))}</div></div>
           <div class="bcol"><h3>Promotion · 2. Liga 3rd v 4th</h3><p class="muted note" style="margin:0 0 6px">Winner goes up</p><div class="bcol-list">${koMatchHTML(comp, po('pro'))}</div></div>
-        </div>
+        </div>`}
         <p class="muted note">Bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up directly. A tied knockout is decided by a Super Over.</p>`;
     }
     const stages = comp.kind === 'league' || comp.format === 'v2' ? [['SF', 'Semifinals', 2], ['F', 'Final', 1]] : [['R16', 'Round of 16', 8], ['QF', 'Quarterfinals', 4], ['SF', 'Semifinals', 2], ['F', 'Final', 1]];
@@ -1957,7 +1961,8 @@
       if (ko) line = `Lost in the ${C.STAGE_LABEL[ko.stage].replace('2. Liga ', '').toLowerCase()}`;
     }
     const pof = fx.find(f => f.stage === 'PO' && f.result);
-    if (pof) line += (line ? ' · ' : '') + (pof.po === 'rel' ? (winnerOf(pof) === id ? 'won relegation play-off' : 'lost relegation play-off') : (winnerOf(pof) === id ? 'won promotion play-off' : 'lost promotion play-off'));
+    if (pof && pof.po === 'x') line += (line ? ' · ' : '') + (winnerOf(pof) === id ? 'won the play-off' : 'lost the play-off');
+    else if (pof) line += (line ? ' · ' : '') + (pof.po === 'rel' ? (winnerOf(pof) === id ? 'won relegation play-off' : 'lost relegation play-off') : (winnerOf(pof) === id ? 'won promotion play-off' : 'lost promotion play-off'));
     const pos = (rows) => { const i = rows.findIndex(r => r.id === id); return i < 0 ? null : i + 1; };
     let table = '';
     if (c.divisions) {

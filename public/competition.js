@@ -244,6 +244,12 @@
   function divMoves(db, comp) {
     const d1 = divTable(db, comp, 1).map(r => r.id), d2 = divTable(db, comp, 2).map(r => r.id);
     if (!comp.playoffs) return { up: d2.slice(0, 2), down: d1.slice(6) };
+    if (comp.playoffs === 2) {
+      // Bundesliga style: 1. Liga 6th v 2. Liga 3rd, the winner plays in the 1. Liga next season
+      const x = comp.fixtures.find(f => f.stage === 'PO' && f.po === 'x' && f.result);
+      const climbs = x && winnerOf(x) === x.away;   // away = the 2. Liga team
+      return { up: d2.slice(0, 2).concat(climbs ? [x.away] : []), down: d1.slice(6).concat(climbs ? [x.home] : []) };
+    }
     const rel = comp.fixtures.find(f => f.stage === 'PO' && f.po === 'rel' && f.result);
     const pro = comp.fixtures.find(f => f.stage === 'PO' && f.po === 'pro' && f.result);
     return {
@@ -252,13 +258,22 @@
     };
   }
 
-  // The running season switches to the play-off format too (2. Liga semifinals and final,
-  // relegation and promotion play-offs). Returns true if anything changed.
+  // The running season switches to the current play-off format (2. Liga semifinals and final,
+  // Bundesliga-style play-off 1. Liga 6th v 2. Liga 3rd). Returns true if anything changed.
+  //   playoffs: true = this morning's version (5th v 6th, 3rd v 4th), 2 = Bundesliga style
   function upgradeLeaguePlayoffs(db) {
     let changed = false;
     for (const comp of db.competitions) {
-      if (comp.kind !== 'league' || comp.format !== 'div' || comp.status === 'complete' || comp.playoffs) continue;
-      comp.playoffs = true; changed = true;
+      if (comp.kind !== 'league' || comp.format !== 'div' || comp.status === 'complete' || comp.playoffs === 2) continue;
+      if (comp.playoffs === true) {
+        // an old play-off already played: this season keeps the old rule
+        if (comp.fixtures.some(f => f.stage === 'PO' && f.result)) continue;
+        comp.fixtures = comp.fixtures.filter(f => f.stage !== 'PO');
+        comp.playoffs = 2; changed = true;
+        if (comp.stage !== 'league') { addCrossPlayoff(db, comp); advanceStages(db, comp); }
+        continue;
+      }
+      comp.playoffs = 2; changed = true;
       if (comp.stage !== 'league') {          // league stage already over: add the new matches now
         addDivPlayoffs(db, comp);
         comp.stage = 'playoffs';
@@ -268,12 +283,16 @@
     return changed;
   }
 
-  function addDivPlayoffs(db, comp) {
+  function addCrossPlayoff(db, comp) {
     const d1 = divTable(db, comp, 1).map(r => r.id), d2 = divTable(db, comp, 2).map(r => r.id);
+    addFixture(comp, 'PO', 1, d1[5], d2[2], { po: 'x', label: 'Play-off: 1. Liga 6th v 2. Liga 3rd (winner plays in the 1. Liga)' });
+  }
+
+  function addDivPlayoffs(db, comp) {
+    const d2 = divTable(db, comp, 2).map(r => r.id);
     addFixture(comp, 'SF2', 1, d2[0], d2[3], { div: 2, label: '2. Liga semifinal 1 (1st v 4th)' });
     addFixture(comp, 'SF2', 1, d2[1], d2[2], { div: 2, label: '2. Liga semifinal 2 (2nd v 3rd)' });
-    addFixture(comp, 'PO', 1, d1[4], d1[5], { div: 1, po: 'rel', label: 'Relegation play-off (1. Liga 5th v 6th): loser goes down' });
-    addFixture(comp, 'PO', 1, d2[2], d2[3], { div: 2, po: 'pro', label: 'Promotion play-off (2. Liga 3rd v 4th): winner goes up' });
+    addCrossPlayoff(db, comp);
   }
 
   // Rename a player in ONE profile's history: squads, stats labels, season summaries and the
@@ -487,7 +506,7 @@
     if (kind === 'league' && cfg.format === 'div') {
       const dv = divisionsFor(db);
       comp.divisions = { 1: dv[1], 2: dv[2] };
-      comp.playoffs = true;
+      comp.playoffs = 2;
       comp.divisionsFrom = dv.from;
       comp.seededBy = dv.seededBy || null;
       const rr = { 1: roundRobin(shuffle(dv[1], r)), 2: roundRobin(shuffle(dv[2], r)) };
@@ -805,7 +824,8 @@
         const f2 = comp.fixtures.find(f => f.stage === 'F2' && f.result);
         const po = k => { const f = comp.fixtures.find(x => x.stage === 'PO' && x.po === k && x.result); return f ? ko(f) : null; };
         return { promoted: mv.up.map(name), relegated: mv.down.map(name), div2Winner: name(d2[0]), div1TableWinner: name(d1[0]),
-          ...(f2 ? { div2Champion: name(winnerOf(f2)), div2RunnerUp: name(loserOf(f2)), div2Final: ko(f2), relegationPlayoff: po('rel'), promotionPlayoff: po('pro') } : {}) };
+          ...(f2 ? { div2Champion: name(winnerOf(f2)), div2RunnerUp: name(loserOf(f2)), div2Final: ko(f2),
+            relegationPlayoff: po('x') || po('rel'), promotionPlayoff: po('pro') } : {}) };
       })() : {}),
     };
   }
