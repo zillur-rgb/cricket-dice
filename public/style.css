@@ -723,3 +723,10 @@ table.card tr[class^="ps-"] td:first-child { box-shadow: inset 3px 0 0 var(--ps)
 .ps-res { display: inline-block; width: 18px; text-align: center; font-family: var(--mono); font-weight: 700; font-size: 11px; border-radius: 4px; margin-right: 6px; color: var(--ink); }
 .ps-res.w { background: #8bd16a; } .ps-res.l { background: var(--red); } .ps-res.t { background: var(--muted); }
 .ps-mom { font-size: 10px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 3px; margin-left: 4px; }
+
+/* ---------- Länderliga leaderboards per division ---------- */
+.div-lb-h { display: flex; align-items: center; gap: 8px; margin: 16px 0 8px; font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 17px; color: var(--accent); }
+.div-lb-h.div-2 { color: #c9d4cc; }
+.div-lb-h::before { content: ""; width: 4px; height: 18px; border-radius: 2px; background: currentColor; }
+h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
+.div-lead + .div-lead { margin-top: 22px; padding-top: 6px; border-top: 1px solid var(--line); }

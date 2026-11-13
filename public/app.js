@@ -1452,6 +1452,16 @@
     for (const t of teams) for (const pid of t.players) map[pid] = t;
     return pid => map[pid] || null;
   }
+  // Länderliga seasons with two divisions: the players of 1. Liga or 2. Liga teams (by their team that season)
+  function divSplit(comp) {
+    if (!comp || comp.kind !== 'league' || comp.format !== 'div' || !comp.divisions) return null;
+    const squads = C.squadsFor(state.db, comp);
+    return [1, 2].map(d => {
+      const ids = new Set(comp.divisions[d]);
+      return { d, label: `${d}. Liga`, pids: new Set(squads.filter(t => ids.has(t.id)).flatMap(t => t.players)) };
+    });
+  }
+  const onlyPids = (st, pids) => Object.fromEntries(Object.entries(st).filter(([pid]) => pids.has(pid)));
   const teamTag = t => t ? `<span class="lt"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span>` : '';
 
   function leadersHTML(statsObj, key, n, label, teamFn) {
@@ -1488,8 +1498,11 @@
     if (!comp) return `<p class="muted lb-note">No ${name} season yet.</p>`;
     const st = C.competitionStats(db, comp.id);
     const tf = playerTeamFn(kind, comp);
-    return `<p class="muted lb-note">${name} · Season ${comp.season}${comp.status === 'complete' ? ' (finished)' : ''}</p>
-      <div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs', tf)}${leadersHTML(st, 'wkts', 5, 'Most wickets', tf)}</div>`;
+    const head = `<p class="muted lb-note">${name} · Season ${comp.season}${comp.status === 'complete' ? ' (finished)' : ''}</p>`;
+    const split = divSplit(comp);
+    if (split) return head + split.map(x => { const s2 = onlyPids(st, x.pids); return `<h4 class="div-lb-h div-${x.d}">${x.label}</h4>
+      <div class="leaders">${leadersHTML(s2, 'runs', 5, 'Most runs', tf)}${leadersHTML(s2, 'wkts', 5, 'Most wickets', tf)}</div>`; }).join('');
+    return head + `<div class="leaders">${leadersHTML(st, 'runs', 5, 'Most runs', tf)}${leadersHTML(st, 'wkts', 5, 'Most wickets', tf)}</div>`;
   }
 
   function recentMatchesHTML() {
@@ -1629,14 +1642,27 @@
     else if (tab === 'fixtures') body = fixturesHTML(comp);
     else if (tab === 'leaders') {
       const st = C.competitionStats(db, comp.id);
-      const race = C.seriesRace(db, comp.id).slice(0, 5);
       const tf = playerTeamFn(kind, comp);
-      body = `<div class="lead race"><h3>${comp.status === 'complete' ? 'Player of the series' : 'Player of the series race'}</h3>
-        ${race.length ? `<ol>${race.map(r => `<li><span class="ln"><button class="plink" data-player="${r.pid}">${esc(r.name)}</button>${teamTag(tf(r.pid))}</span><span class="race-sub">${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.motm} PoM</span><span class="num">${r.points} <small>pts</small></span></li>`).join('')}</ol>`
-          : '<p class="muted" style="font-size:13px">No matches yet.</p>'}
-        <p class="muted note">Points add up each player's match performances: runs, strike rate, wickets and economy.</p></div>
+      const allRace = C.seriesRace(db, comp.id);
+      const raceHTML = (race, title) => `<div class="lead race"><h3>${title}</h3>
+        ${race.length ? `<ol>${race.slice(0, 5).map(r => `<li><span class="ln"><button class="plink" data-player="${r.pid}">${esc(r.name)}</button>${teamTag(tf(r.pid))}</span><span class="race-sub">${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.motm} PoM</span><span class="num">${r.points} <small>pts</small></span></li>`).join('')}</ol>`
+          : '<p class="muted" style="font-size:13px">No matches yet.</p>'}</div>`;
+      const note = '<p class="muted note">Points add up each player\'s match performances: runs, strike rate, wickets and economy.</p>';
+      const split = divSplit(comp);
+      if (split) {
+        const pos = comp.summary && comp.summary.playerOfSeries;
+        body = (pos ? `<p class="muted note" style="margin-top:0">Player of the series (whole Länderliga): <button class="plink" data-player="${pos.pid}">${esc(pmap()[pos.pid] ? pmap()[pos.pid].name : pos.pid)}</button></p>` : '')
+          + split.map(x => {
+            const s2 = onlyPids(st, x.pids);
+            return `<section class="div-lead div-${x.d}"><h3 class="div-lb-h div-${x.d}">${x.label}</h3>
+              ${raceHTML(allRace.filter(r => x.pids.has(r.pid)), 'Points race')}
+              <div class="leaders" style="margin-top:14px">${leadersHTML(s2, 'runs', 10, 'Most runs', tf)}${leadersHTML(s2, 'wkts', 10, 'Most wickets', tf)}</div></section>`;
+          }).join('') + note + `
+`;
+      } else body = raceHTML(allRace, comp.status === 'complete' ? 'Player of the series' : 'Player of the series race') + note + `
         <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season', tf)}${leadersHTML(st, 'wkts', 10, 'Most wickets this season', tf)}</div>
-        ${seasonRecordsHTML(comp)}`;
+`;
+      body += seasonRecordsHTML(comp);
     } else if (tab === 'transfers') body = draftHTML(kind, comp.transfers);
     else body = squadsHTML(kind, comp);
 
@@ -1911,7 +1937,7 @@
     // how big a win they need on net run rate (one match left)
     const marginTxt = () => {
       const m = t.margin;
-      if (!m) return 'a big enough win (net run rate decides)';
+      if (!m) return '';                       // several matches left: no exact margin yet
       const parts = [];
       if (m.runs) parts.push(`by ${m.runs}+ run${m.runs === 1 ? '' : 's'} batting first`);
       if (m.spare === 0) parts.push('any win when chasing');
@@ -1928,13 +1954,15 @@
     if (t.winAllSure) return `${verb} ${opp} and they're ${Z}`;
     const mt = marginTxt();
     if (t.winSureSome) {
-      let s = `${verb} ${opp} and they're ${Z} if ${conds(t.sureIf)}`;
-      if (t.rival) s += mt ? `. Otherwise they need to win ${mt}${rivalTxt()}` : `. Otherwise only a near-impossible win${rivalTxt()} would do`;
+      // no single result needed: several combinations of other results would do
+      let s = t.sureIf && t.sureIf.length ? `${verb} ${opp} and they're ${Z} if ${conds(t.sureIf)}` : `${verb} ${opp}, and with the right results elsewhere they're ${Z}`;
+      if (t.rival) s += mt === '' ? `. Otherwise they need big enough wins${rivalTxt() || ' (net run rate decides)'}` : mt ? `. Otherwise they need to win ${mt}${rivalTxt()}` : `. Otherwise only a near-impossible win${rivalTxt()} would do`;
       return s;
     }
     if (t.winAllCan) {
-      if (!mt) return `Needs a near-impossible win over ${opp}${rivalTxt()}`;
       const help = t.tieIf && t.tieIf.length ? `, and needs ${needs(t.tieIf)}` : '';
+      if (mt === '') return `Must beat ${opp} by big enough margins${rivalTxt() || ' (net run rate decides)'}${help}`;
+      if (!mt) return `Needs a near-impossible win over ${opp}${rivalTxt()}`;
       return `Must beat ${opp} ${mt}${rivalTxt()}${help}`;
     }
     return 'Out';
