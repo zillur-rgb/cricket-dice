@@ -747,7 +747,8 @@
     const pom = C.playerOfMatch(m);
     let html = awardCard('Player of the match', pom.name, pom.color, pom.team, pom.line, pom.pid, false);
     const comp = state.ctx ? compById(state.ctx.compId) : null;
-    if (comp && comp.status === 'complete' && comp.summary && comp.summary.playerOfSeries && fixtureById(state.ctx).stage === 'F') {
+    const lastOfComp = comp ? [...state.db.matches].reverse().find(x => x.compId === comp.id) : null;
+    if (comp && comp.status === 'complete' && comp.summary && comp.summary.playerOfSeries && lastOfComp && lastOfComp.id === state.ctx.fixtureId) {
       html += seriesAwardHTML(comp);
     }
     return `<div class="awards">${html}</div>`;
@@ -963,7 +964,7 @@
     if (!db || !db.players) { db = C.newDB(); state.db = db; await save(); }
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
-    if (C.migrate(db) | C.refreshEmptyOldSeason(db)) await save();
+    if (C.migrate(db) | C.refreshEmptyOldSeason(db) | C.upgradeLeaguePlayoffs(db)) await save();
     restoreLive();
     render();
   }
@@ -1007,7 +1008,7 @@
     else db = await loadCloud(j);
     state.db = db;
     if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
-    if (C.migrate(db) | C.refreshEmptyOldSeason(db)) await save();
+    if (C.migrate(db) | C.refreshEmptyOldSeason(db) | C.upgradeLeaguePlayoffs(db)) await save();
     state.match = null; state.ctx = null;
     restoreLive();
     state.screen = 'home';
@@ -1524,7 +1525,7 @@
     if (!comp) {
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
-          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of the 1. Liga play the semifinals and the final. After each season the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga come up. Last man stands: when everyone else is out, the last batter bats on alone.`
+          ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Länderliga champion, the 2. Liga final the 2. Liga champion. Three teams go down and three come up: the bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up; the 1. Liga 5th v 6th play-off loser goes down and the 2. Liga 3rd v 4th play-off winner goes up. Last man stands: when everyone else is out, the last batter bats on alone.`
           : `20 German cities, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
         <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
@@ -1546,7 +1547,8 @@
     if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
     const done = comp.fixtures.filter(f => f.result).length;
     const next = C.pendingFixtures(comp)[0];
-    const stageLeft = C.pendingFixtures(comp).filter(f => f.stage === comp.stage).length;
+    const inStage = f => comp.stage === 'playoffs' ? f.stage !== 'league' : f.stage === comp.stage;
+    const stageLeft = C.pendingFixtures(comp).filter(inStage).length;
 
     let top;
     if (comp.status === 'complete') {
@@ -1554,6 +1556,7 @@
         <div class="trophy">🏆</div>
         <div><div class="cc-kicker">Season ${comp.season} champions</div><h2 class="champ-name">${esc(comp.summary.champion)}</h2>
         <div class="muted">${esc(comp.summary.final.result)} · Player of the final: ${esc(comp.summary.final.motm)}</div>
+        ${comp.summary.div2Champion ? `<div class="muted" style="font-size:14px;margin-top:4px">🥈 2. Liga champions: <b>${esc(comp.summary.div2Champion)}</b> (${esc(comp.summary.div2Final.result)})</div>` : ''}
         ${comp.summary.promoted ? `<div class="muted" style="font-size:14px;margin-top:4px">⬆ Up: <b>${comp.summary.promoted.map(esc).join(', ')}</b> · ⬇ Down: <b>${comp.summary.relegated.map(esc).join(', ')}</b></div>` : ''}</div>
         ${comp.summary.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
         <button class="primary" id="btn-new-season">Start season ${comp.season + 1}</button>
@@ -1626,7 +1629,7 @@
       });
     });
     app.querySelectorAll('[data-simn]').forEach(b => b.onclick = () => {
-      const pend = C.pendingFixtures(comp).filter(f => f.stage === comp.stage);
+      const pend = C.pendingFixtures(comp).filter(f => comp.stage === 'playoffs' ? f.stage !== 'league' : f.stage === comp.stage);
       const ids = (b.dataset.simn === 'stage' ? pend : pend.slice(0, 8)).map(f => f.id);
       confirmBox({
         title: `Simulate ${ids.length} matches?`,
@@ -1744,10 +1747,14 @@
     const rows = C.divTable(state.db, comp, d);
     const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
     const moved = prev && prev.summary ? (d === 1 ? prev.summary.promoted : prev.summary.relegated) : null;
-    const cls = d === 1 ? (i, n) => i < 4 ? 'q' : i >= n - 2 ? 'rel' : '' : (i) => i < 2 ? 'up' : '';
+    const po = comp.playoffs;
+    const cls = d === 1 ? (i, n) => i < 4 ? 'q' : i >= n - 2 ? 'rel' : po && (i === 4 || i === 5) ? 'po' : ''
+      : (i) => i < 2 ? 'up' : po && (i === 2 || i === 3) ? 'po' : '';
     const note = d === 1
-      ? '<span class="zone q">Top 4</span> play the semifinals. <span class="zone rel">Bottom 2</span> go down to the 2. Liga next season.'
-      : '<span class="zone up">Top 2</span> go up to the 1. Liga next season.';
+      ? (po ? '<span class="zone q">Top 4</span> play the semifinals for the title. <span class="zone po">5th v 6th</span> play a relegation play-off: the loser goes down. <span class="zone rel">Bottom 2</span> go down to the 2. Liga.'
+            : '<span class="zone q">Top 4</span> play the semifinals. <span class="zone rel">Bottom 2</span> go down to the 2. Liga next season.')
+      : (po ? '<span class="zone up">Top 2</span> go up to the 1. Liga. <span class="zone po">3rd v 4th</span> play a promotion play-off: the winner goes up too. The top 4 also play semifinals and a final for the 2. Liga title.'
+            : '<span class="zone up">Top 2</span> go up to the 1. Liga next season.');
     const intro = moved && moved.length ? `<p class="muted note" style="margin-top:0">${d === 1 ? 'Promoted' : 'Relegated'} last season: <b>${moved.map(esc).join(', ')}</b></p>`
       : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Bundesliga season: the ${comp.seededBy === 'table' ? 'top 8 of the last Länderliga table' : '8 strongest squads'} start in the 1. Liga.</p>` : '';
     return intro + standingsTable('league', rows, 0, cls) + `<p class="muted note">${note} Win 2 pts. Level on points: net run rate decides.</p>`;
@@ -1780,6 +1787,24 @@
   }
   function bracketHTML(comp) {
     const st = s => comp.fixtures.filter(f => f.stage === s);
+    if (comp.playoffs) {
+      const col = (s, label, n) => `<div class="bcol"><h3>${label}</h3><div class="bcol-list">${Array.from({ length: n }, (_, i) => koMatchHTML(comp, st(s)[i])).join('')}</div></div>`;
+      const po = k => comp.fixtures.find(f => f.stage === 'PO' && f.po === k);
+      const waiting = comp.stage === 'league';
+      return `${waiting ? '<p class="muted note" style="margin-top:0">These matches are set when the league stage is finished.</p>' : ''}
+        <h3 class="po-h">1. Liga · title</h3>
+        <p class="muted note" style="margin-top:0">Semifinals: 1st v 4th and 2nd v 3rd. The winner of the final is the Länderliga champion.</p>
+        <div class="bracket">${col('SF', 'Semifinals', 2)}${col('F', 'Final', 1)}</div>
+        <h3 class="po-h">2. Liga · title</h3>
+        <p class="muted note" style="margin-top:0">Semifinals: 1st v 4th and 2nd v 3rd of the 2. Liga, then the 2. Liga final.</p>
+        <div class="bracket">${col('SF2', 'Semifinals', 2)}${col('F2', 'Final', 1)}</div>
+        <h3 class="po-h">Play-offs</h3>
+        <div class="bracket">
+          <div class="bcol"><h3>Relegation · 1. Liga 5th v 6th</h3><p class="muted note" style="margin:0 0 6px">Loser goes down</p><div class="bcol-list">${koMatchHTML(comp, po('rel'))}</div></div>
+          <div class="bcol"><h3>Promotion · 2. Liga 3rd v 4th</h3><p class="muted note" style="margin:0 0 6px">Winner goes up</p><div class="bcol-list">${koMatchHTML(comp, po('pro'))}</div></div>
+        </div>
+        <p class="muted note">Bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up directly. A tied knockout is decided by a Super Over.</p>`;
+    }
     const stages = comp.kind === 'league' || comp.format === 'v2' ? [['SF', 'Semifinals', 2], ['F', 'Final', 1]] : [['R16', 'Round of 16', 8], ['QF', 'Quarterfinals', 4], ['SF', 'Semifinals', 2], ['F', 'Final', 1]];
     const cols = stages.map(([s, label, n]) => {
       const list = st(s);
@@ -1922,19 +1947,25 @@
     const winnerOf = f => f.result && f.result.winner;
     const fin = c.fixtures.find(f => f.stage === 'F' && f.result);
     let line = '', cls = '';
+    const fin2 = c.fixtures.find(f => f.stage === 'F2' && f.result);
     if (fin && winnerOf(fin) === id) { line = 'Champion'; cls = 'champ'; }
     else if (fin && (fin.home === id || fin.away === id)) { line = 'Runner-up'; cls = 'runner'; }
+    else if (fin2 && winnerOf(fin2) === id) { line = '2. Liga champion'; cls = 'champ2'; }
+    else if (fin2 && (fin2.home === id || fin2.away === id)) { line = '2. Liga runner-up'; cls = 'runner'; }
     else {
-      const ko = fx.filter(f => ['R16', 'QF', 'SF'].includes(f.stage) && f.result && winnerOf(f) !== id).pop();
-      if (ko) line = `Lost in the ${C.STAGE_LABEL[ko.stage].toLowerCase()}`;
+      const ko = fx.filter(f => ['R16', 'QF', 'SF', 'SF2'].includes(f.stage) && f.result && winnerOf(f) !== id).pop();
+      if (ko) line = `Lost in the ${C.STAGE_LABEL[ko.stage].replace('2. Liga ', '').toLowerCase()}`;
     }
+    const pof = fx.find(f => f.stage === 'PO' && f.result);
+    if (pof) line += (line ? ' · ' : '') + (pof.po === 'rel' ? (winnerOf(pof) === id ? 'won relegation play-off' : 'lost relegation play-off') : (winnerOf(pof) === id ? 'won promotion play-off' : 'lost promotion play-off'));
     const pos = (rows) => { const i = rows.findIndex(r => r.id === id); return i < 0 ? null : i + 1; };
     let table = '';
     if (c.divisions) {
       const d = c.divisions[1].includes(id) ? 1 : 2, p = pos(C.divTable(db, c, d)), n = c.divisions[d].length;
       table = `${d}. Liga · ${ordinal(p)}`;
-      if (done && d === 1 && p > n - 2) table += ' · relegated';
-      if (done && d === 2 && p <= 2) table += ' · promoted';
+      const mv = done ? C.divMoves(db, c) : null;
+      if (mv && mv.down.includes(id)) table += ' · relegated';
+      if (mv && mv.up.includes(id)) table += ' · promoted';
     } else if (kind === 'league') {
       table = `League · ${ordinal(pos(C.leagueTable(db, c)))}`;
     } else {
@@ -1969,7 +2000,7 @@
     // season history
     const hist = comps.map(c => teamSeasonLine(c, kind, id)).filter(Boolean).reverse();
     const histRows = hist.map(h => `<li><span class="tm-season">S${h.season}</span>
-      <span class="tm-finish ${h.cls}">${h.cls === 'champ' ? '🏆 ' : ''}${esc(h.line || h.table || '–')}${h.line && h.table ? `<span class="muted"> · ${esc(h.table)}</span>` : ''}${h.running ? ' <span class="muted">(running)</span>' : ''}</span>
+      <span class="tm-finish ${h.cls}">${h.cls === 'champ' ? '🏆 ' : h.cls === 'champ2' ? '🥈 ' : ''}${esc(h.line || h.table || '–')}${h.line && h.table ? `<span class="muted"> · ${esc(h.table)}</span>` : ''}${h.running ? ' <span class="muted">(running)</span>' : ''}</span>
       <span class="muted num">${h.rec}</span></li>`).join('');
     const titles = hist.filter(h => h.cls === 'champ').length;
     // top batters and bowlers while playing for this team
@@ -2116,11 +2147,11 @@
         <div class="cc-kicker">${c.kind === 'league' ? 'League' : 'Tournament'} · Season ${c.season} · finished ${new Date(c.finishedAt).toLocaleDateString()}</div>
         <h2>${c.name} · Season ${c.season}</h2>
         <div class="hist-top">
-          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div>${S.promoted ? `<div class="muted" style="font-size:13px">⬆ ${S.promoted.map(esc).join(', ')} · ⬇ ${S.relegated.map(esc).join(', ')}</div>` : ''}</div></div>
+          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div>${S.div2Champion ? `<div class="muted" style="font-size:13px">2. Liga champions: ${esc(S.div2Champion)}</div>` : ''}${S.promoted ? `<div class="muted" style="font-size:13px">⬆ ${S.promoted.map(esc).join(', ')} · ⬇ ${S.relegated.map(esc).join(', ')}</div>` : ''}</div></div>
           ${S.playerOfSeries ? `<div class="hist-champ pos"><span class="trophy-s">👑</span><div><div class="cc-kicker">Player of the series</div><b><button class="plink" data-player="${S.playerOfSeries.pid}">${esc(S.playerOfSeries.name)}</button></b><div class="muted" style="font-size:13px">${S.playerOfSeries.runs} runs · ${S.playerOfSeries.wkts} wkt${S.playerOfSeries.wkts === 1 ? '' : 's'} · ${S.playerOfSeries.mat} matches</div></div></div>` : ''}
         </div>
         <div class="hist-grid">
-          ${ko(S.final)}${S.semifinals.map(ko).join('')}
+          ${ko(S.final)}${S.semifinals.map(ko).join('')}${S.div2Final ? ko(S.div2Final) : ''}${S.relegationPlayoff ? ko(S.relegationPlayoff) : ''}${S.promotionPlayoff ? ko(S.promotionPlayoff) : ''}
           <div class="hk"><div class="cc-kicker">Top run scorers</div>${lst(S.topRuns, 'runs')}</div>
           <div class="hk"><div class="cc-kicker">Top wicket takers</div>${lst(S.topWkts, 'wkts')}</div>
         </div>

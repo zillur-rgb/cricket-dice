@@ -76,7 +76,8 @@
     league: { name: 'Länderliga', overs: 5, maxOversPerBowler: 1, squad: 7, kind: 'league', format: 'div' },
     cup: { name: 'Städtepokal', overs: 6, maxOversPerBowler: 1, maxBallsPerBatter: 12, squad: 6, kind: 'cup', format: 'v2' },
   };
-  const STAGE_LABEL = { league: 'League', group: 'Group stage', R2: 'Second round', R16: 'Round of 16', QF: 'Quarterfinal', SF: 'Semifinal', F: 'Final' };
+  const STAGE_LABEL = { league: 'League', group: 'Group stage', R2: 'Second round', R16: 'Round of 16', QF: 'Quarterfinal', SF: 'Semifinal', F: 'Final',
+    SF2: '2. Liga semifinal', F2: '2. Liga final', PO: 'Play-off', playoffs: 'Playoffs' };
   // Städtepokal v2: 20 cities × 6 players. These four left the competition; their players moved.
   const RETIRED_CITIES = ['bonn', 'essen', 'augsburg', 'karlsruhe'];
 
@@ -224,7 +225,8 @@
     const last = done[done.length - 1];
     if (last && last.format === 'div') {
       const d1 = divTable(db, last, 1).map(r => r.id), d2 = divTable(db, last, 2).map(r => r.id);
-      return { 1: d1.slice(0, 6).concat(d2.slice(0, 2)), 2: d1.slice(6).concat(d2.slice(2)), from: last.season };
+      const mv = divMoves(db, last);
+      return { 1: d1.filter(x => !mv.down.includes(x)).concat(mv.up), 2: d2.filter(x => !mv.up.includes(x)).concat(mv.down), from: last.season };
     }
     let order;
     if (last) order = leagueTable(db, last).map(r => r.id);
@@ -234,6 +236,44 @@
       order = db.teams.league.slice().sort((a, b) => str(b) - str(a)).map(t => t.id);
     }
     return { 1: order.slice(0, 8), 2: order.slice(8, 16), from: null, seededBy: last ? 'table' : 'strength' };
+  }
+
+  // Who goes up and down at the end of a Bundesliga season.
+  //   With play-offs: 1. Liga 7th + 8th + loser of 5th v 6th go down; 2. Liga 1st + 2nd + winner of 3rd v 4th go up.
+  //   Older seasons: bottom 2 down, top 2 up.
+  function divMoves(db, comp) {
+    const d1 = divTable(db, comp, 1).map(r => r.id), d2 = divTable(db, comp, 2).map(r => r.id);
+    if (!comp.playoffs) return { up: d2.slice(0, 2), down: d1.slice(6) };
+    const rel = comp.fixtures.find(f => f.stage === 'PO' && f.po === 'rel' && f.result);
+    const pro = comp.fixtures.find(f => f.stage === 'PO' && f.po === 'pro' && f.result);
+    return {
+      up: d2.slice(0, 2).concat(pro ? [winnerOf(pro)] : []),
+      down: d1.slice(6).concat(rel ? [loserOf(rel)] : []),
+    };
+  }
+
+  // The running season switches to the play-off format too (2. Liga semifinals and final,
+  // relegation and promotion play-offs). Returns true if anything changed.
+  function upgradeLeaguePlayoffs(db) {
+    let changed = false;
+    for (const comp of db.competitions) {
+      if (comp.kind !== 'league' || comp.format !== 'div' || comp.status === 'complete' || comp.playoffs) continue;
+      comp.playoffs = true; changed = true;
+      if (comp.stage !== 'league') {          // league stage already over: add the new matches now
+        addDivPlayoffs(db, comp);
+        comp.stage = 'playoffs';
+        advanceStages(db, comp);
+      }
+    }
+    return changed;
+  }
+
+  function addDivPlayoffs(db, comp) {
+    const d1 = divTable(db, comp, 1).map(r => r.id), d2 = divTable(db, comp, 2).map(r => r.id);
+    addFixture(comp, 'SF2', 1, d2[0], d2[3], { div: 2, label: '2. Liga semifinal 1 (1st v 4th)' });
+    addFixture(comp, 'SF2', 1, d2[1], d2[2], { div: 2, label: '2. Liga semifinal 2 (2nd v 3rd)' });
+    addFixture(comp, 'PO', 1, d1[4], d1[5], { div: 1, po: 'rel', label: 'Relegation play-off (1. Liga 5th v 6th): loser goes down' });
+    addFixture(comp, 'PO', 1, d2[2], d2[3], { div: 2, po: 'pro', label: 'Promotion play-off (2. Liga 3rd v 4th): winner goes up' });
   }
 
   // Rename a player in ONE profile's history: squads, stats labels, season summaries and the
@@ -447,6 +487,7 @@
     if (kind === 'league' && cfg.format === 'div') {
       const dv = divisionsFor(db);
       comp.divisions = { 1: dv[1], 2: dv[2] };
+      comp.playoffs = true;
       comp.divisionsFrom = dv.from;
       comp.seededBy = dv.seededBy || null;
       const rr = { 1: roundRobin(shuffle(dv[1], r)), 2: roundRobin(shuffle(dv[2], r)) };
@@ -585,9 +626,28 @@
     if (comp.kind === 'league') {
       if (comp.stage === 'league' && stageDone(comp, 'league')) {
         const t = comp.format === 'div' ? divTable(db, comp, 1) : leagueTable(db, comp);
-        addFixture(comp, 'SF', 1, t[0].id, t[3].id, { label: 'Semifinal 1 (1st v 4th)' });
-        addFixture(comp, 'SF', 1, t[1].id, t[2].id, { label: 'Semifinal 2 (2nd v 3rd)' });
+        addFixture(comp, 'SF', 1, t[0].id, t[3].id, { label: 'Semifinal 1 (1st v 4th)', ...(comp.playoffs ? { div: 1 } : {}) });
+        addFixture(comp, 'SF', 1, t[1].id, t[2].id, { label: 'Semifinal 2 (2nd v 3rd)', ...(comp.playoffs ? { div: 1 } : {}) });
         comp.stage = 'SF';
+        if (comp.playoffs) { addDivPlayoffs(db, comp); comp.stage = 'playoffs'; }
+      }
+      if (comp.playoffs && comp.stage !== 'league') {
+        // 1. Liga final, 2. Liga final and both play-offs run side by side
+        if (stageDone(comp, 'SF') && !has(comp, 'F')) {
+          const s = comp.fixtures.filter(f => f.stage === 'SF');
+          addFixture(comp, 'F', 1, winnerOf(s[0]), winnerOf(s[1]), { label: 'Final', div: 1 });
+        }
+        if (stageDone(comp, 'SF2') && !has(comp, 'F2')) {
+          const s = comp.fixtures.filter(f => f.stage === 'SF2');
+          addFixture(comp, 'F2', 1, winnerOf(s[0]), winnerOf(s[1]), { label: '2. Liga final', div: 2 });
+        }
+        if (['SF', 'F', 'SF2', 'F2', 'PO'].every(s => has(comp, s) && stageDone(comp, s))) {
+          const fin = comp.fixtures.find(f => f.stage === 'F');
+          comp.status = 'complete';
+          comp.finishedAt = new Date().toISOString();
+          comp.summary = seasonSummary(db, comp, fin);
+        }
+        return;
       }
     } else if (comp.format === 'v2') {
       if (comp.stage === 'group' && stageDone(comp, 'group')) {
@@ -741,7 +801,11 @@
       playerOfSeries: seriesRace(db, comp.id)[0] || null,
       ...(comp.format === 'div' ? (() => {
         const d1 = divTable(db, comp, 1).map(r => r.id), d2 = divTable(db, comp, 2).map(r => r.id);
-        return { promoted: d2.slice(0, 2).map(name), relegated: d1.slice(6).map(name), div2Winner: name(d2[0]), div1TableWinner: name(d1[0]) };
+        const mv = divMoves(db, comp);
+        const f2 = comp.fixtures.find(f => f.stage === 'F2' && f.result);
+        const po = k => { const f = comp.fixtures.find(x => x.stage === 'PO' && x.po === k && x.result); return f ? ko(f) : null; };
+        return { promoted: mv.up.map(name), relegated: mv.down.map(name), div2Winner: name(d2[0]), div1TableWinner: name(d1[0]),
+          ...(f2 ? { div2Champion: name(winnerOf(f2)), div2RunnerUp: name(loserOf(f2)), div2Final: ko(f2), relegationPlayoff: po('rel'), promotionPlayoff: po('pro') } : {}) };
       })() : {}),
     };
   }
@@ -854,7 +918,7 @@
   const api = {
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
-    startCompetition, leagueTable, divTable, divisionsFor, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
+    startCompetition, leagueTable, divTable, divisionsFor, divMoves, upgradeLeaguePlayoffs, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, renamePlayer,
     buildMatch, simulateFixture, pendingFixtures, fmtStats,
     impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf,
   };

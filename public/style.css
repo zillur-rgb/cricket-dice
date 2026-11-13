@@ -636,3 +636,9 @@ table.standings tr.up td:first-child { color: var(--teal); font-weight: 700; }
 /* Form */
 .form-ic { margin-left: 4px; font-size: .9em; text-decoration: none; display: inline-block; }
 .form-line { font-size: 13px; margin: 2px 0 6px; }
+/* Bundesliga play-offs */
+table.standings tr.po { background: rgba(232,160,71,.08); }
+table.standings tr.po td:first-child { color: #e8a047; font-weight: 700; }
+.zone.po { color: #e8a047; }
+.po-h { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 16px; margin: 18px 0 4px; }
+.tm-finish.champ2 { font-weight: 700; }
