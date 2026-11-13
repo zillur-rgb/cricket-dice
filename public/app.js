@@ -1783,16 +1783,46 @@
   const zoneWord = scope => scope.type === 'div' ? (scope.d === 1 ? 'in the semifinals' : 'promoted') : 'through';
   const namesJoin = arr => arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1];
 
+  // Plain words: what a team needs (no percentages)
   function stakeNote(comp, scope, r, id) {
     const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope);
-    if (t.status === 'in') return `${scope.type === 'div' && scope.d === 2 ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'} ✓`;
-    if (t.status === 'out') return 'Out of it';
-    const opp = namesJoin(t.left.map(x => tname(kind, x)));
+    if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d === 2 ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
+    if (t.status === 'out') return 'Out';
+    const nm = x => tname(kind, x);
+    const opp = namesJoin(t.left.map(nm));
+    const conds = list => namesJoin((list || []).map(q => `${nm(q.winner)} beat ${nm(q.loser)}`));          // "... if X beat Y"
+    const needs = list => namesJoin((list || []).map(q => `${nm(q.winner)} to beat ${nm(q.loser)}`));     // "needs X to beat Y" 
     if (!r.exact) return t.left.length ? `${t.left.length} match${t.left.length === 1 ? '' : 'es'} left` : 'Waits for the other results';
-    if (!t.left.length) return `Done · waits for the other results${t.nrr ? ' (net run rate may decide)' : ''}`;
-    if (t.winAllSure) return t.loseCan ? `Beat ${opp} and they're ${Z}` : `Must beat ${opp}, then they're ${Z}`;
-    if (t.winAllCan) return (t.loseCan ? `A win v ${opp} helps; also needs other results` : `Must beat ${opp} and needs other results`) + (t.nrr ? ' · net run rate may decide' : '');
-    return 'Out of it';
+    // how big a win they need on net run rate (one match left)
+    const marginTxt = () => {
+      const m = t.margin;
+      if (!m) return 'a big enough win (net run rate decides)';
+      const parts = [];
+      if (m.runs) parts.push(`by ${m.runs}+ run${m.runs === 1 ? '' : 's'} batting first`);
+      if (m.spare === 0) parts.push('any win when chasing');
+      else if (m.spare) parts.push(`with ${m.spare}+ ball${m.spare === 1 ? '' : 's'} to spare when chasing`);
+      if (!parts.length) return null;
+      return parts.join(', or ');
+    };
+    const rivalTxt = () => t.rival ? ` to finish above ${nm(t.rival)} on net run rate${t.rivalPlays ? ` (if ${nm(t.rival)}'s run rate stays as it is)` : ''}` : '';
+    if (!t.left.length) {
+      const need = t.needsIf && t.needsIf.length ? `needs ${needs(t.needsIf)}` : 'waits for the other results';
+      return `Done · ${need}${t.nrr ? ', then net run rate decides' : ''}`;
+    }
+    const verb = t.loseCan ? 'Beat' : 'Must beat';
+    if (t.winAllSure) return `${verb} ${opp} and they're ${Z}`;
+    const mt = marginTxt();
+    if (t.winSureSome) {
+      let s = `${verb} ${opp} and they're ${Z} if ${conds(t.sureIf)}`;
+      if (t.rival) s += mt ? `. Otherwise they need to win ${mt}${rivalTxt()}` : `. Otherwise only a near-impossible win${rivalTxt()} would do`;
+      return s;
+    }
+    if (t.winAllCan) {
+      if (!mt) return `Needs a near-impossible win over ${opp}${rivalTxt()}`;
+      const help = t.tieIf && t.tieIf.length ? `, and needs ${needs(t.tieIf)}` : '';
+      return `Must beat ${opp} ${mt}${rivalTxt()}${help}`;
+    }
+    return 'Out';
   }
 
   // One line per team in the next match: what this game means for them
@@ -1804,7 +1834,7 @@
     const lines = [f.home, f.away].map(id => {
       const t = r.teams[id];
       if (t.status !== 'race') return '';
-      return `<div><b>${esc(tname(comp.kind, id))}</b> ${t.chance}% · ${esc(stakeNote(comp, scope, r, id))}</div>`;
+      return `<div><b>${esc(tname(comp.kind, id))}:</b> ${esc(stakeNote(comp, scope, r, id))}</div>`;
     }).filter(Boolean);
     return lines.length ? `<div class="next-stake"><span class="cc-kicker">At stake</span>${lines.join('')}</div>` : '';
   }
@@ -1816,16 +1846,14 @@
     const rows = r.order.map(id => {
       const t = r.teams[id];
       const cls = t.status === 'in' ? 'in' : t.status === 'out' ? 'out' : '';
-      const down = r.bottom && t.down !== null ? (t.down === 'down' ? '<span class="st-down">⬇ relegated</span>' : t.down === 'safe' ? '' : t.down >= 1 ? `<span class="st-down">⬇ ${t.down}%</span>` : '') : '';
-      return `<li class="${cls}">${chipTeam(kind, id)}
-        <span class="st-bar" title="${t.chance}%"><span style="width:${t.chance}%"></span></span><span class="num st-pct">${t.chance}%</span>
-        <span class="st-note">${esc(stakeNote(comp, scope, r, id))}${down ? ' ' + down : ''}</span></li>`;
+      const down = r.bottom && t.down !== null ? (t.down === 'down' ? '<span class="st-down">⬇ relegated</span>' : t.down === 'safe' || !t.down ? '' : '<span class="st-down">⬇ relegation danger</span>') : '';
+      return `<li class="${cls}">${chipTeam(kind, id)}<span class="st-note">${esc(stakeNote(comp, scope, r, id))}${down ? ' · ' + down : ''}</span></li>`;
     }).join('');
-    const what = scope.type === 'div' ? (scope.d === 1 ? 'reaching the semifinals (top 4)' : 'promotion (top 2)') : 'going through (top 2)';
+    const pars = Object.values(r.teams).map(t => t.margin && t.margin.par).filter(Boolean);
     return `<div class="stake">
       <h3>What's at stake <span class="muted">· ${r.matchesLeft} match${r.matchesLeft === 1 ? '' : 'es'} left</span></h3>
       <ul class="stake-list">${rows}</ul>
-      <p class="muted note">Chance of ${what}${r.bottom ? '; ⬇ = risk of finishing in the bottom 2' : ''}. ${r.exact ? 'Counts every possible result' : 'From 6,000 simulated finishes'} of the remaining matches, each one 50/50; teams level on points share the spot (net run rate decides).</p>
+      ${pars.length ? `<p class="muted note">Winning margins assume the side batting first makes about ${pars[0]} (this season's average first innings).</p>` : ''}
     </div>`;
   }
 

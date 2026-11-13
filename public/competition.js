@@ -575,9 +575,10 @@
     const nrr = Object.fromEntries(rows.map(r => [r.id, r.nrr]));
     const k = remaining.length;
     const out = Object.fromEntries(ids.map(id => [id, { in: 0, down: 0, total: 0, sureIn: true, canIn: false, sureDown: true, canDown: false,
-      winAll: { total: 0, sureIn: true, canIn: false }, loseCan: false, nrrTie: false }]));
+      winAll: { total: 0, sureIn: true, canIn: false }, loseCan: false, nrrTie: false, rivals: new Set(), rivalNrr: -Infinity, winSureSome: false,
+      sureMasks: [], tieMasks: [], canMasks: [] }]));
     const mine = Object.fromEntries(ids.map(id => [id, remaining.filter(f => f.home === id || f.away === id)]));
-    const evalOutcome = (winners) => {
+    const evalOutcome = (winners, mask) => {
       const pts = { ...base };
       winners.forEach(w => { pts[w] += 2; });
       for (const id of ids) {
@@ -597,12 +598,25 @@
           if (below < bottom) o.canDown = true;
         }
         const wonAll = mine[id].every(f => winners[remaining.indexOf(f)] === id);
-        if (wonAll) { o.winAll.total++; if (!sureInHere) o.winAll.sureIn = false; if (canInHere) o.winAll.canIn = true; }
+        if (wonAll) {
+          o.winAll.total++; if (!sureInHere) o.winAll.sureIn = false; if (canInHere) o.winAll.canIn = true;
+          if (sureInHere) o.winSureSome = true;
+          if (mask !== undefined) { if (sureInHere) o.sureMasks.push(mask); else if (canInHere) o.tieMasks.push(mask); }
+          // won, but level on points at the cut-off: who would they have to beat on net run rate?
+          if (canInHere && !sureInHere) {
+            // level with these teams for (top - above) spots: they must finish above the team in the last of those spots
+            const lv = ids.filter(x => x !== id && pts[x] === pts[id]).sort((a, b) => nrr[b] - nrr[a]);
+            const thr = lv[top - above - 1];
+            if (thr && (o.needNrr === undefined || nrr[thr] < o.needNrr)) { o.needNrr = nrr[thr]; o.needRival = thr; }
+            lv.forEach(x => o.rivals.add(x));
+          }
+        }
         else if (canInHere) o.loseCan = true;
+        if (mask !== undefined && canInHere) o.canMasks.push(mask);
       }
     };
     if (k <= 14) {
-      for (let mask = 0; mask < (1 << k); mask++) evalOutcome(remaining.map((f, i) => (mask >> i) & 1 ? f.home : f.away));
+      for (let mask = 0; mask < (1 << k); mask++) evalOutcome(remaining.map((f, i) => (mask >> i) & 1 ? f.home : f.away), mask);
     } else {
       for (let s = 0; s < 6000; s++) evalOutcome(remaining.map(f => Math.random() < 0.5 ? f.home : f.away));
       // with sampling, "sure" and "can't" only from points that are mathematically out of reach
@@ -614,6 +628,17 @@
         o.winAll.sureIn = false;
       }
     }
+    // other matches that end the same way in every one of these outcomes = results the team needs
+    const fixed = (masks, id) => {
+      if (!masks.length) return null;
+      const need = [];
+      remaining.forEach((f, i) => {
+        if (f.home === id || f.away === id) return;
+        const bit = (masks[0] >> i) & 1;
+        if (masks.every(m => ((m >> i) & 1) === bit)) need.push({ winner: bit ? f.home : f.away, loser: bit ? f.away : f.home });
+      });
+      return need;
+    };
     const res = {};
     for (const id of ids) {
       const o = out[id];
@@ -627,9 +652,32 @@
         winAllCan: left.length && o.winAll.canIn,
         loseCan: o.loseCan,
         nrr: o.nrrTie,
+        rivals: [...o.rivals], rivalNrr: o.needNrr, rival: o.needRival, winSureSome: o.winSureSome,
+        sureIf: fixed(o.sureMasks, id),    // winning their own matches + these results = through for sure
+        tieIf: fixed(o.tieMasks, id),      // ... or these results = level on points, net run rate decides
+        needsIf: fixed(o.canMasks, id),    // results needed in every way they can still go through
       };
     }
     return { teams: res, matchesLeft: k, exact: k <= 14 };
+  }
+
+  // Smallest win that takes a team's net run rate above `target` in its last match.
+  //   Batting first: they score `par` in full overs, the opponents fall short by R runs (full overs).
+  //   Chasing: the opponents score `par`, they reach par+1 with balls to spare.
+  function nrrMargin(row, B, par, target) {
+    const after = (rf, bf, ra, ba) => rf * 6 / bf - ra * 6 / ba;
+    // batting first: NRR grows by R / (overs bowled) for every run the opponents fall short
+    const base = after(row.rf + par, row.bf + B, row.ra + par, row.ba + B);
+    const perRun = 6 / (row.ba + B);
+    let runs = Math.floor((target - base) / perRun) + 1;
+    if (runs < 1) runs = 1;
+    const runsOk = runs < par;
+    // chasing: fewer balls used = higher NRR
+    let spare = null;
+    for (let s = 0; s < B; s++) {
+      if (after(row.rf + par + 1, row.bf + (B - s), row.ra + par, row.ba + B) > target) { spare = s; break; }
+    }
+    return { runs: runsOk ? runs : null, spare };
   }
 
   function raceFor(db, comp, scope) {
@@ -641,7 +689,20 @@
       top = scope.d === 1 ? 4 : 2; bottom = scope.d === 1 ? 2 : 0;
     }
     if (!remaining.length) return null;
-    return { ...race(rows, remaining, top, bottom), top, bottom, order: rows.map(r => r.id) };
+    const r = { ...race(rows, remaining, top, bottom), top, bottom, order: rows.map(x => x.id) };
+    // How big a win lifts a team above its rivals on net run rate (only with one match left)
+    const played = db.matches.filter(m => m.compId === comp.id);
+    const firsts = played.map(m => m.innings[0] && m.innings[0].runs).filter(x => x != null);
+    const par = firsts.length ? Math.round(firsts.reduce((a, b) => a + b, 0) / firsts.length) : comp.overs * 10;
+    for (const row of rows) {
+      const t = r.teams[row.id];
+      if (!r.exact || t.left.length !== 1 || !t.rivals.length) continue;
+      if (t.rival === undefined) continue;
+      t.margin = nrrMargin(row, comp.overs * 6, par, t.rivalNrr);
+      t.margin.par = par;
+      t.rivalPlays = remaining.some(f => f.home === t.rival || f.away === t.rival);
+    }
+    return r;
   }
 
   // ---------------- Season records ----------------

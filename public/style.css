@@ -331,13 +331,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* ---------- Competition ---------- */
 .comp-head h1 { font-size: 46px; }
 .next { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
-.next-info { display: grid; gap: 6px; min-width: 0; }
+.next-info { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; flex: 1 1 260px; }
 .next-teams { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--display); font-size: 24px; font-weight: 700; text-transform: uppercase; }
 .next-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .next-actions .primary { padding: 12px 26px; }
 .vs { color: var(--muted); font-size: .7em; text-transform: lowercase; }
 .tchip { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .tchip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.next-teams .tchip { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
 .champ { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .champ .trophy { font-size: 40px; }
 .champ > div:nth-child(2) { flex: 1; min-width: 200px; }
@@ -647,17 +648,17 @@ table.standings tr.po td:first-child { color: #e8a047; font-weight: 700; }
 .stake h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 14px; margin: 0 0 8px; }
 .stake h3 .muted { text-transform: none; letter-spacing: 0; font-family: inherit; font-weight: 400; }
 .stake-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.stake-list li { display: grid; grid-template-columns: minmax(0, 1fr) 70px 40px; grid-template-areas: "team bar pct" "note note note"; gap: 2px 8px; align-items: center; font-size: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.stake-list li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .stake-list li:last-child { border-bottom: 0; padding-bottom: 0; }
-.stake-list .tchip { grid-area: team; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stake-list .tchip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .st-bar { grid-area: bar; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .st-bar span { display: block; height: 100%; background: var(--accent); }
 .st-pct { grid-area: pct; text-align: right; font-size: 13px; }
-.st-note { grid-area: note; font-size: 12px; color: var(--muted); }
+.st-note { font-size: 13px; color: var(--muted); line-height: 1.4; }
 .stake-list li.in .st-note { color: var(--teal); }
 .stake-list li.out { opacity: .55; }
 .st-down { color: var(--red); white-space: nowrap; }
-.next-stake { margin-top: 8px; font-size: 13px; display: grid; gap: 2px; }
+.next-stake { margin-top: 8px; font-size: 13px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; overflow-wrap: anywhere; }
 .next-stake .cc-kicker { margin-bottom: 2px; }
 /* Season records */
 .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
