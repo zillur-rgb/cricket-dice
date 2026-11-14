@@ -710,7 +710,7 @@ table.standings tr.po td:first-child { color: #e8a047; font-weight: 700; }
 
 /* ---------- Player card: one colour per competition ---------- */
 .ps-all { --ps: var(--accent); }
-.ps-league { --ps: var(--blue); }
+.ps-league { --ps: #9aa69e; }
 .ps-cup { --ps: var(--teal); }
 table.card tr.ps-all, table.card tr.ps-league, table.card tr.ps-cup { background: color-mix(in srgb, var(--ps) 9%, transparent); }
 table.card tr[class^="ps-"] td:first-child { box-shadow: inset 3px 0 0 var(--ps); }
@@ -730,3 +730,21 @@ table.card tr[class^="ps-"] td:first-child { box-shadow: inset 3px 0 0 var(--ps)
 .div-lb-h::before { content: ""; width: 4px; height: 18px; border-radius: 2px; background: currentColor; }
 h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
 .div-lead + .div-lead { margin-top: 22px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+/* ---------- Club honours ---------- */
+.honours { display: flex; flex-wrap: wrap; gap: 6px; }
+.hon { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 999px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, var(--text) 8%, transparent); border: 1px solid var(--line); }
+.hon small { font-weight: 400; color: var(--muted); }
+.hon.gold { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.hon.dbl { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+.hon.dbl small { color: var(--ink); opacity: .75; }
+.hon.up { color: #8bd16a; } .hon.down { color: var(--red); }
+.tm-comp { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--ps); margin-right: 5px; }
+.ps-liga { --ps: var(--blue); }
+.season-awards { display: grid; gap: 10px; }
+.award-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.award-row .award, .season-awards .award { margin: 0; }
+.season-banner { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.season-banner > div { min-width: 0; flex: 1 1 320px; }
+.season-wait { margin: 0 0 12px; }
+.nextup { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }

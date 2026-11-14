@@ -23,7 +23,7 @@
     store: 'loading',   // 'server' | 'local' | 'loading'
     saveMsg: '',
     ctx: null,          // { compId, fixtureId, recorded } when the live match belongs to a competition
-    compTab: { league: 'div1', cup: 'groups' },
+    compTab: { league: 'div1', liga: 'div1', cup: 'groups' },
     plFilter: 'all', plSort: 'runs', plSearch: '',
     setup: { teamAId: 'hawks', teamBId: 'falcons', overs: 10, pitch: 'balanced' },
     match: null,
@@ -62,6 +62,11 @@
   const teamDot = t => `<span class="dot" style="background:${t.color}"></span>`;
 
   function render() {
+    if (state.db) {
+      const lb = document.querySelector('[data-nav-league]');
+      const lk = C.leagueKind(state.db);
+      if (lb && lb.dataset.nav !== lk) { lb.dataset.nav = lk; lb.textContent = C.COMPS[lk].name; }
+    }
     document.querySelectorAll('[data-nav]').forEach(b => b.classList.toggle('active', b.dataset.nav === navKey()));
     if (state.screen !== state._lastScreen) window.scrollTo(0, 0);
     state._lastScreen = state.screen;
@@ -101,7 +106,7 @@
       <section class="setup">
         <div class="setup-hero">
           <h1>Friendly match</h1>
-          <p>A one-off match between two invented XIs. Nothing here is saved to your history. For the Länderliga and Städtepokal, use the menu above.</p>
+          <p>A one-off match between two invented XIs. Nothing here is saved to your history. For the league and the Städtepokal, use the menu above.</p>
         </div>
         <div class="panel">
           <div class="field-label">Team 1</div>
@@ -766,7 +771,7 @@
   function seriesAwardHTML(comp) {
     const s = comp.summary.playerOfSeries;
     const p = pmap()[s.pid];
-    const t = C.teamOf(state.db, comp.kind, comp.kind === 'league' ? p.state : p.city);
+    const t = comp.kind === 'league' ? C.teamOf(state.db, 'league', p.state) : (C.squadsFor(state.db, comp).find(x => x.players.includes(s.pid)) || C.teamOf(state.db, 'cup', p.city));
     return awardCard(`Player of the series · ${comp.name} S${comp.season}`, s.name, t ? t.color : '#999', t ? t.name : '', `${s.runs} runs · ${s.wkts} wkt${s.wkts === 1 ? '' : 's'} · ${s.mat} matches`, s.pid, true);
   }
 
@@ -824,9 +829,10 @@
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
-        <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. Länderliga: the other 5 bowl one over each. Städtepokal: the other 4 share the 6 overs, max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
+        <li><b>City clubs</b>: 20 clubs of 6 players. 18 play the <b>Städteliga</b> (three divisions of 6; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and all 20 play the <b>Städtepokal</b>, with the same squad. Both competitions are one season: the draft opens when both are finished.</li>
+        <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
-        <li><b>The draft</b> (between seasons): each team keeps its 2 best performers, everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
+        <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. A batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out).</li>
       </ul>
@@ -1088,7 +1094,7 @@
       </form>`;
     }
     app.innerHTML = `<section class="profiles">
-      <div class="setup-hero"><h1>Who's playing?</h1><p>Each profile keeps its own Länderliga and Städtepokal seasons, history and player stats.</p></div>
+      <div class="setup-hero"><h1>Who's playing?</h1><p>Each profile keeps its own seasons, history and player stats.</p></div>
       <div class="profile-grid">${cards}<button class="profile-card add ${sel === 'new' ? 'selected' : ''}" data-prof="new"><span class="avatar add">+</span><span class="pname-big">New profile</span></button></div>
       ${form ? `<div class="panel prof-panel">${form}</div>` : ''}
     </section>`;
@@ -1172,7 +1178,7 @@
     });
     const matches = [];
     db.matches.forEach((m, i) => { if (!state.savedIds.has(m.id)) matches.push({ ...m, seq: i }); });
-    const meta = { app: db.app, version: db.version, cupVersion: db.cupVersion, createdAt: db.createdAt, players: db.players, teams: db.teams };
+    const meta = { app: db.app, version: db.version, cupVersion: db.cupVersion, clubs: db.clubs || null, createdAt: db.createdAt, players: db.players, teams: db.teams };
     try {
       const deleteCompetitions = (state.pendingDeletes || []).slice();
       let res, j;
@@ -1259,7 +1265,7 @@
       modal.hidden = true;
       const d = state.db;
       const { res, j } = await api('api/db', { method: 'POST', body: JSON.stringify({ mode: 'replace',
-        meta: { app: d.app, version: d.version, cupVersion: d.cupVersion, createdAt: d.createdAt, players: d.players, teams: d.teams },
+        meta: { app: d.app, version: d.version, cupVersion: d.cupVersion, clubs: d.clubs || null, createdAt: d.createdAt, players: d.players, teams: d.teams },
         competitions: d.competitions.map((c, i) => ({ ...c, seq: i })), matches: d.matches.map((m, i) => ({ ...m, seq: i })), stats: d.stats }) }).catch(() => ({ res: null }));
       if (!res || !res.ok) { showToast('Could not upload. Your results stay on this device; try again later.', true); return; }
       d.rev = j.rev; state.pendingDeletes = [];
@@ -1297,7 +1303,7 @@
       try {
         const { res, j } = await api('api/db', {
           method: 'POST',
-          body: JSON.stringify({ mode: 'replace', meta: { app: fresh.app, version: fresh.version, cupVersion: fresh.cupVersion, createdAt: fresh.createdAt, players: fresh.players, teams: fresh.teams }, competitions: [], matches: [], stats: C.computeStats(fresh) }),
+          body: JSON.stringify({ mode: 'replace', meta: { app: fresh.app, version: fresh.version, cupVersion: fresh.cupVersion, clubs: null, createdAt: fresh.createdAt, players: fresh.players, teams: fresh.teams }, competitions: [], matches: [], stats: C.computeStats(fresh) }),
         });
         if (res.status === 401) { sessionExpired(); return; }
         if (!res.ok) throw new Error((j && j.error) || 'reset failed');
@@ -1380,7 +1386,7 @@
   document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => {
     if (!state.db) return;
     const k = b.dataset.nav;
-    if (k === 'league' || k === 'cup') openComp(k);
+    if (k === 'league' || k === 'cup' || k === 'liga') openComp(k);
     else if (k === 'friendly') {
       const live = state.match && !state.ctx && state.match.innings.length && !state.match.result;
       if (live) { resumeLive(); return; }
@@ -1411,15 +1417,18 @@
     const comp = C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
     const blurb = kind === 'league'
       ? `16 German states in two divisions · 7 players each · ${cfg.overs} overs · last man stands · 2 up, 2 down every season`
-      : `20 German cities · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`;
-    let status = '<span class="muted">No season played yet</span>';
-    if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
+      : kind === 'liga'
+        ? `18 city clubs in three divisions of 6 · the same squads as the Städtepokal · ${cfg.overs} overs · 2 up, 2 down every season`
+        : `20 city clubs · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`;
+    let status = kind === 'liga' && !comp ? '<span class="muted">Starts with the next season</span>' : '<span class="muted">No season played yet</span>';
+    if (comp && comp.status === 'complete' && comp.kind === 'liga') status = `Season ${comp.season} champions: <b>${[1, 2, 3].map(d => comp.summary.divChampions[d] ? esc(comp.summary.divChampions[d].champion) : '–').join('</b> · <b>')}</b>`;
+    else if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
     else if (comp) {
       const done = comp.fixtures.filter(f => f.result).length;
       status = `Season ${comp.season} · ${C.STAGE_LABEL[comp.stage]} · ${done} of ${comp.fixtures.length} matches played`;
     }
     return `<button class="comp-card ${kind}" data-open="${kind}">
-      <span class="cc-kicker">${kind === 'league' ? 'League' : 'Tournament'}</span>
+      <span class="cc-kicker">${kind === 'cup' ? 'Tournament' : 'League'}</span>
       <span class="cc-name">${cfg.name}</span>
       <span class="cc-blurb">${blurb}</span>
       <span class="cc-status">${status}</span>
@@ -1447,16 +1456,16 @@
 
   // team a player belongs to: in that season's squads (comp), or today's squads (kind)
   function playerTeamFn(kind, comp) {
-    const teams = comp ? C.squadsFor(state.db, comp) : state.db.teams[kind];
+    const teams = comp ? C.squadsFor(state.db, comp) : C.teamsOf(state.db, kind);
     const map = {};
     for (const t of teams) for (const pid of t.players) map[pid] = t;
     return pid => map[pid] || null;
   }
   // Länderliga seasons with two divisions: the players of 1. Liga or 2. Liga teams (by their team that season)
   function divSplit(comp) {
-    if (!comp || comp.kind !== 'league' || comp.format !== 'div' || !comp.divisions) return null;
+    if (!comp || !comp.divisions || !(comp.kind === 'liga' || (comp.kind === 'league' && comp.format === 'div'))) return null;
     const squads = C.squadsFor(state.db, comp);
-    return [1, 2].map(d => {
+    return Object.keys(comp.divisions).map(Number).map(d => {
       const ids = new Set(comp.divisions[d]);
       return { d, label: `${d}. Liga`, pids: new Set(squads.filter(t => ids.has(t.id)).flatMap(t => t.players)) };
     });
@@ -1474,10 +1483,10 @@
   }
 
   // ---------- Home leaderboards ----------
-  const HOME_BOARDS = [
+  const HOME_BOARDS_FOR = lk => [
     ['recent', 'Last 3 matches'],
-    ['league-now', 'Länderliga · current'],
-    ['league-all', 'Länderliga · all time'],
+    [`${lk}-now`, `${C.COMPS[lk].name} · current`],
+    [`${lk}-all`, `${C.COMPS[lk].name} · all time`],
     ['cup-now', 'Städtepokal · current'],
     ['cup-all', 'Städtepokal · all time'],
   ];
@@ -1541,18 +1550,123 @@
     el.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
   }
 
+  // ---------- One season: Städteliga + Städtepokal ----------
+  // fixtures a season usually has (to keep both competitions moving at the same pace)
+  const EXPECTED = { liga: 54, cup: 53, league: 63 };
+  function nextUpComp() {
+    const db = state.db;
+    const act = [C.leagueKind(db), 'cup'].map(k => C.activeComp(db, k)).filter(c => c && C.pendingFixtures(c).length);
+    if (!act.length) return null;
+    const frac = c => c.fixtures.filter(f => f.result).length / (EXPECTED[c.kind] || c.fixtures.length);
+    return act.sort((a, b) => frac(a) - frac(b))[0];
+  }
+  function nextUpHTML() {
+    const comp = nextUpComp();
+    if (!comp) return '';
+    const f = C.pendingFixtures(comp)[0];
+    const other = [C.leagueKind(state.db), 'cup'].map(k => C.activeComp(state.db, k)).filter(c => c && c !== comp && C.pendingFixtures(c).length)[0];
+    return `<div class="panel nextup">
+      <div class="next-info">
+        <div class="cc-kicker">Next up · ${esc(fixtureLabel(comp, f))}</div>
+        <div class="next-teams">${chipTeam(comp.kind, f.home)}<span class="vs">vs</span>${chipTeam(comp.kind, f.away)}</div>
+        <div class="muted" style="font-size:13px">${comp.overs} overs · ${esc(E.PITCHES[f.pitch].label)} pitch${other ? ` · alternates with the ${esc(other.name)} so both finish together` : ''}</div>
+      </div>
+      <div class="next-actions"><button class="primary" data-nu-play="${f.id}">Play</button><button class="secondary" data-nu-sim="${f.id}">Quick sim</button></div>
+    </div>`;
+  }
+  function bindNextUp(el) {
+    const comp = nextUpComp();
+    if (!comp) return;
+    el.querySelectorAll('[data-nu-play]').forEach(b => b.onclick = () => playFixture(comp, b.dataset.nuPlay));
+    el.querySelectorAll('[data-nu-sim]').forEach(b => b.onclick = () => {
+      const f = comp.fixtures.find(x => x.id === b.dataset.nuSim);
+      confirmBox({
+        title: 'Simulate this match?',
+        text: `${tname(comp.kind, f.home)} vs ${tname(comp.kind, f.away)} (${fixtureLabel(comp, f)}) will be played by the computer and the result saved. This can't be undone.`,
+        ok: 'Simulate',
+        onOk: async () => { await simFixtures(comp, [f.id]); state.screen = 'home'; render(); },
+      });
+    });
+  }
+
+  function seasonBannerHTML() {
+    const db = state.db;
+    const done = C.seasonDone(db);
+    if (done) {
+      const switching = !C.clubEra(db);
+      return `<div class="panel season-banner">
+        <div><div class="cc-kicker">Season finished</div>
+        <b>${switching ? 'The Länderliga and the Städtepokal are finished.' : 'The Städteliga and the Städtepokal are finished.'}</b>
+        <div class="muted" style="font-size:14px">${switching
+          ? 'From next season the 20 city clubs play both competitions with one squad: 18 of them in the new Städteliga (three divisions of 6), all 20 in the Städtepokal. The draft sets the squads first.'
+          : 'The draft sets next season\'s squads for both competitions: each club keeps 2, the rest are drafted.'}</div></div>
+        <button class="primary" id="btn-season-draft">Open the draft</button>
+      </div>`;
+    }
+    if (C.clubEra(db) && !db.competitions.some(c => c.kind === 'cup' || c.kind === 'liga')) {
+      return `<div class="panel season-banner"><div><div class="cc-kicker">Season 1</div><b>Start the first season</b>
+        <div class="muted" style="font-size:14px">The Städteliga and the Städtepokal start together, with the same 20 city clubs.</div></div>
+        <button class="primary" id="btn-start-clubs">Start season 1</button></div>`;
+    }
+    const lk = C.leagueKind(db);
+    const a = C.activeComp(db, lk), b = C.activeComp(db, 'cup');
+    if (!!a !== !!b && (C.lastComp(db, lk) || !C.clubEra(db))) {
+      const waiting = a ? C.COMPS.cup.name : C.COMPS[lk].name, running = a ? a.name : b.name;
+      return `<p class="muted note season-wait">${esc(waiting)} season finished. The draft for next season opens when the ${esc(running)} is finished too.</p>`;
+    }
+    return '';
+  }
+
+  // Player of the Season (both competitions together), best player of each division, cup player of the series
+  function clubSeasonAwards(n) {
+    const db = state.db;
+    const comps = C.clubSeasonComps(db, n);
+    const liga = comps.find(c => c.kind === 'liga'), cup = comps.find(c => c.kind === 'cup');
+    if (!liga || !cup || liga.status !== 'complete' || cup.status !== 'complete') return null;
+    const overall = C.combinedRace(db, [liga, cup])[0];
+    const squads = C.squadsFor(db, liga);
+    const divs = {};
+    const race = C.seriesRace(db, liga.id);
+    for (const d of [1, 2, 3]) {
+      const pids = new Set(squads.filter(t => liga.divisions[d].includes(t.id)).flatMap(t => t.players));
+      divs[d] = race.find(r => pids.has(r.pid)) || null;
+    }
+    return { n, liga, cup, overall, divs, cupBest: C.seriesRace(db, cup.id)[0] || null };
+  }
+  function clubSeasonAwardsHTML(A) {
+    if (!A) return '';
+    const club = pid => { const t = C.squadsFor(state.db, A.cup).find(x => x.players.includes(pid)); return t || { name: '', color: '#999' }; };
+    const line = r => `${r.runs} runs · ${r.wkts} wkt${r.wkts === 1 ? '' : 's'} · ${r.points} pts`;
+    const card = (k, r, big) => r ? awardCard(k, r.name, club(r.pid).color, club(r.pid).name, line(r), r.pid, big) : '';
+    return `<div class="season-awards">
+      ${card(`Player of the Season · S${A.liga.season} Städteliga + S${A.cup.season} Städtepokal`, A.overall, true)}
+      <div class="award-row">${[1, 2, 3].map(d => card(`Best in the ${d}. Liga`, A.divs[d])).join('')}${card('Best in the Städtepokal', A.cupBest)}</div>
+    </div>`;
+  }
+  function seasonAwardsHTML() {
+    const db = state.db;
+    if (!db.clubs || !db.clubs.seasons || !C.seasonDone(db)) return '';
+    const A = clubSeasonAwards(db.clubs.seasons);
+    return A ? `<div class="panel"><h2 style="margin-top:0">Season awards</h2>${clubSeasonAwardsHTML(A)}</div>` : '';
+  }
+
   function renderHome() {
     const db = state.db;
     const all = Object.fromEntries(Object.entries(db.stats).map(([k, v]) => [k, v.all]));
     const played = db.matches.length;
+    const HOME_BOARDS = HOME_BOARDS_FOR(C.leagueKind(db));
+    if (!HOME_BOARDS.some(x => x[0] === state.homeTab)) state.homeTab = 'recent';
     app.innerHTML = `<section class="home">
       <div class="setup-hero">
         <h1>Cricket Dice</h1>
-        <p>Two competitions, one squad of 120 players. Every run and wicket counts toward each player's career, whichever team they're playing for.</p>
+        <p>${C.clubEra(db) ? '20 city clubs, one squad each, two competitions: the Städteliga and the Städtepokal. Every run and wicket counts toward each player\'s career.' : 'Two competitions, one squad of 120 players. Every run and wicket counts toward each player\'s career, whichever team they\'re playing for.'}</p>
       </div>
       ${storeBanner()}
       ${liveMatchInProgress() ? `<div class="panel resume"><div><b>Match in progress</b><div class="muted">${esc(state.match.teams[0].name)} vs ${esc(state.match.teams[1].name)}</div></div><button class="primary" id="btn-resume">Resume</button></div>` : ''}
-      <div class="comp-grid">${compCardHTML('league')}${compCardHTML('cup')}</div>
+      ${seasonBannerHTML()}
+      <div class="comp-grid">${compCardHTML(C.leagueKind(state.db))}${compCardHTML('cup')}</div>
+      ${nextUpHTML()}
+      ${seasonAwardsHTML()}
       <div class="panel">
         <div class="inn-title"><h2>Leaderboards</h2><span class="muted" style="font-size:13px">${played} match${played === 1 ? '' : 'es'} played</span></div>
         <div class="lb-tabs" role="tablist">${HOME_BOARDS.map(([k, l]) => `<button class="lb-tab ${state.homeTab === k ? 'active' : ''}" data-hb="${k}" role="tab" aria-selected="${state.homeTab === k}">${l}</button>`).join('')}</div>
@@ -1570,6 +1684,9 @@
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
     const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
+    const dr = document.getElementById('btn-season-draft'); if (dr) dr.onclick = () => openTransfers('cup');
+    const sc = document.getElementById('btn-start-clubs'); if (sc) sc.onclick = () => { C.startClubSeason(state.db); save(); render(); };
+    bindNextUp(app);
     bindPlayerLinks();
   }
 
@@ -1579,26 +1696,38 @@
     const comp = C.activeComp(db, kind) || C.lastComp(db, kind);
     const cfg = C.COMPS[kind];
     if (!comp) {
+      // club era: both competitions start together (after the draft, or for a brand-new profile)
+      const anyClub = db.competitions.some(c => c.kind === 'cup' || c.kind === 'liga');
+      const startNote = C.clubEra(db) && anyClub
+        ? `<div class="panel season-banner" style="margin-top:16px"><div><b>Starts with the next season.</b><div class="muted" style="font-size:14px">${C.seasonDone(db) ? 'Everything is finished: open the draft to start the next season.' : 'When the current season is finished, the draft sets the squads and the Städteliga starts together with the Städtepokal.'}</div></div>${C.seasonDone(db) ? '<button class="primary" id="btn-open-draft">Open the draft</button>' : ''}</div>`
+        : `<div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1${C.clubEra(db) ? ' (Städteliga + Städtepokal)' : ''}</button></div>`;
       app.innerHTML = `<section>
-        <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'league'
+        <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'liga'
+          ? `18 of the 20 city clubs, with the same squads they use in the Städtepokal, in three divisions of 6: the 1. Liga, 2. Liga and 3. Liga. Every club plays its own division once (5 matches), ${cfg.overs} overs a side. The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Städteliga champion, the 2. and 3. Liga finals their own champions. The bottom 2 of the 1. and 2. Liga go down, the top 2 of the 2. and 3. Liga go up. The other 2 clubs play only the Städtepokal.`
+          : kind === 'league'
           ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Länderliga champion, the 2. Liga final the 2. Liga champion. The bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up. The 1. Liga's 6th plays the 2. Liga's 3rd in a play-off, and the winner plays in the 1. Liga next season. Last man stands: when everyone else is out, the last batter bats on alone.`
           : `20 German cities, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
         ${storeBanner()}
-        <div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1</button></div>
+        ${startNote}
         <div class="panel" style="margin-top:16px">${squadsHTML(kind)}</div>
       </section>`;
-      document.getElementById('btn-new-season').onclick = () => { C.startCompetition(db, kind); save(); render(); };
+      const sb = document.getElementById('btn-new-season');
+      if (sb) sb.onclick = () => { if (C.clubEra(db)) C.startClubSeason(db); else C.startCompetition(db, kind); save(); render(); };
+      const od = document.getElementById('btn-open-draft'); if (od) od.onclick = () => openTransfers('cup');
       bindPlayerLinks();
       return;
     }
-    const baseTabs = kind === 'league'
+    const baseTabs = kind === 'liga'
+      ? [['div1', '1. Liga'], ['div2', '2. Liga'], ['div3', '3. Liga'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
+      : kind === 'league'
       ? comp.format === 'div'
         ? [['div1', '1. Liga'], ['div2', '2. Liga'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
         : [['table', 'Table'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
       : comp.format === 'v2'
         ? [['groups', 'Groups'], ['round2', 'Second round'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
         : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
-    const tabs = comp.transfers ? baseTabs.concat([['transfers', comp.transfers.picks ? 'Draft' : 'Transfers']]) : baseTabs;
+    const draftOf = comp.transfers && comp.transfers.ref ? (compById(comp.transfers.ref) || {}).transfers : comp.transfers;
+    const tabs = draftOf ? baseTabs.concat([['transfers', draftOf.picks ? 'Draft' : 'Transfers']]) : baseTabs;
     let tab = state.compTab[kind];
     if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
     const done = comp.fixtures.filter(f => f.result).length;
@@ -1607,7 +1736,23 @@
     const stageLeft = C.pendingFixtures(comp).filter(inStage).length;
 
     let top;
-    if (comp.status === 'complete') {
+    const nextBtn = () => {
+      if (C.seasonDone(db)) return `<button class="primary" id="btn-new-season">Draft for next season</button>`;
+      const other = [C.leagueKind(db), 'cup'].filter(k => k !== kind).map(k => C.activeComp(db, k)).find(Boolean);
+      return other ? `<p class="muted" style="font-size:13px;max-width:260px">The draft for next season opens when the ${esc(other.name)} is finished too.</p>` : '';
+    };
+    if (comp.status === 'complete' && kind === 'liga') {
+      const S = comp.summary, DC = S.divChampions || {};
+      top = `<div class="champ">
+        <div class="trophy">🏆</div>
+        <div><div class="cc-kicker">Season ${comp.season} champions</div><h2 class="champ-name">${esc(S.champion)}</h2>
+        <div class="muted">${esc(S.final.result)} · Player of the final: ${esc(S.final.motm)}</div>
+        ${[2, 3].map(d => DC[d] ? `<div class="muted" style="font-size:14px;margin-top:4px">${d === 2 ? '🥈' : '🥉'} ${d}. Liga champions: <b>${esc(DC[d].champion)}</b> (${esc(DC[d].final.result)})</div>` : '').join('')}
+        <div class="muted" style="font-size:14px;margin-top:4px">⬆ Up: <b>${S.promoted.map(esc).join(', ')}</b> · ⬇ Down: <b>${S.relegated.map(esc).join(', ')}</b></div></div>
+        ${S.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
+        ${nextBtn()}
+      </div>`;
+    } else if (comp.status === 'complete') {
       top = `<div class="champ">
         <div class="trophy">🏆</div>
         <div><div class="cc-kicker">Season ${comp.season} champions</div><h2 class="champ-name">${esc(comp.summary.champion)}</h2>
@@ -1615,7 +1760,7 @@
         ${comp.summary.div2Champion ? `<div class="muted" style="font-size:14px;margin-top:4px">🥈 2. Liga champions: <b>${esc(comp.summary.div2Champion)}</b> (${esc(comp.summary.div2Final.result)})</div>` : ''}
         ${comp.summary.promoted ? `<div class="muted" style="font-size:14px;margin-top:4px">⬆ Up: <b>${comp.summary.promoted.map(esc).join(', ')}</b> · ⬇ Down: <b>${comp.summary.relegated.map(esc).join(', ')}</b></div>` : ''}</div>
         ${comp.summary.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
-        <button class="primary" id="btn-new-season">Draft for season ${comp.season + 1}</button>
+        ${nextBtn()}
       </div>`;
     } else {
       top = `<div class="next">
@@ -1635,7 +1780,7 @@
 
     let body = '';
     if (tab === 'table') body = leagueTableHTML(comp);
-    else if (tab === 'div1' || tab === 'div2') body = divisionHTML(comp, tab === 'div1' ? 1 : 2);
+    else if (/^div[123]$/.test(tab)) body = divisionHTML(comp, +tab.slice(3));
     else if (tab === 'groups') body = groupsHTML(comp);
     else if (tab === 'round2') body = round2HTML(comp);
     else if (tab === 'playoffs' || tab === 'knockout') body = bracketHTML(comp);
@@ -1651,7 +1796,7 @@
       const split = divSplit(comp);
       if (split) {
         const pos = comp.summary && comp.summary.playerOfSeries;
-        body = (pos ? `<p class="muted note" style="margin-top:0">Player of the series (whole Länderliga): <button class="plink" data-player="${pos.pid}">${esc(pmap()[pos.pid] ? pmap()[pos.pid].name : pos.pid)}</button></p>` : '')
+        body = (pos ? `<p class="muted note" style="margin-top:0">Player of the series (whole ${esc(comp.name)}): <button class="plink" data-player="${pos.pid}">${esc(pmap()[pos.pid] ? pmap()[pos.pid].name : pos.pid)}</button></p>` : '')
           + split.map(x => {
             const s2 = onlyPids(st, x.pids);
             return `<section class="div-lead div-${x.d}"><h3 class="div-lb-h div-${x.d}">${x.label}</h3>
@@ -1663,14 +1808,14 @@
         <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season', tf)}${leadersHTML(st, 'wkts', 10, 'Most wickets this season', tf)}</div>
 `;
       body += seasonRecordsHTML(comp);
-    } else if (tab === 'transfers') body = draftHTML(kind, comp.transfers);
+    } else if (tab === 'transfers') body = draftHTML(kind === 'liga' ? 'cup' : kind, draftOf);
     else body = squadsHTML(kind, comp);
 
     app.innerHTML = `<section class="comp">
       <div class="comp-head">
-        <div><div class="cc-kicker">${kind === 'league' ? 'League' : 'Tournament'} · Season ${comp.season}</div><h1>${comp.name}</h1>
+        <div><div class="cc-kicker">${kind === 'cup' ? 'Tournament' : 'League'} · Season ${comp.season}</div><h1>${comp.name}</h1>
         <div class="muted">${C.STAGE_LABEL[comp.stage]}${comp.status === 'complete' ? ' · complete' : ''} · ${done} of ${comp.fixtures.length} matches played</div></div>
-        ${comp.status !== 'complete' ? '<button class="secondary danger-ghost" id="btn-cancel-season">Cancel this season</button>' : ''}
+        ${comp.status !== 'complete' && !comp.clubSeason ? '<button class="secondary danger-ghost" id="btn-cancel-season">Cancel this season</button>' : ''}
       </div>
       ${comp.status !== 'complete' && comp.format !== cfg.format ? `<div class="store warn">● This season uses the old ${esc(cfg.name)} format. Cancel it to start fresh with the new format.</div>` : ''}
       ${storeBanner()}
@@ -1718,10 +1863,10 @@
 
   // ---------- Transfer window between seasons ----------
   function openTransfers(kind) {
-    state.compKind = kind;
-    state.transferPlan = C.planTransfers(state.db, kind);
+    state.compKind = 'cup';
+    state.transferPlan = C.planTransfers(state.db, 'cup');
     state.draftShown = 0; stopDraftAuto();
-    if (!state.transferPlan) { C.startCompetition(state.db, kind); save(); render(); return; }
+    if (!state.transferPlan) { showToast('The draft opens when both competitions are finished'); return; }
     state.screen = 'transfers';
     render();
   }
@@ -1813,8 +1958,8 @@
     if (!plan.picks) { stopDraftAuto(); return; }
     if (state.draftShown == null) state.draftShown = 0;
     app.innerHTML = `<section class="comp draft">
-      <div class="comp-head"><div><div class="cc-kicker">${cfg.name} · before season ${plan.toSeason}</div><h1>The draft</h1>
-        <div class="muted dr-intro">Each team kept its ${plan.keep} best performers from season ${plan.fromSeason}. Everyone else is in the draft. The team with the weakest squad picks first, snake order. Players are ranked by a <b>draft rating</b>: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season. It only counts for the draft: once the squads are full, everyone plays with their normal ratings again.</div></div></div>
+      <div class="comp-head"><div><div class="cc-kicker">City clubs · before the next season</div><h1>The draft</h1>
+        <div class="muted dr-intro">Each club kept its ${plan.keep} best performers from last season (both competitions count). The squads play the Städteliga and the Städtepokal. Everyone else is in the draft. The team with the weakest squad picks first, snake order. Players are ranked by a <b>draft rating</b>: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season. It only counts for the draft: once the squads are full, everyone plays with their normal ratings again.</div></div></div>
       <div class="panel dr-bar">
         <div id="dr-status"></div>
         <div class="dr-btns">
@@ -1854,15 +1999,16 @@
     $('dr-skip').onclick = () => { stopDraftAuto(); state.draftShown = plan.picks.length; update(); };
     $('tw-start').onclick = async () => {
       stopDraftAuto();
-      const comp = C.applyTransfers(state.db, plan);
+      const { liga } = C.applyTransfers(state.db, plan);
       state.transferPlan = null; state.draftShown = null;
-      state.compTab[kind] = kind === 'league' ? 'div1' : 'groups';
+      state.compTab.liga = 'div1'; state.compTab.cup = 'groups';
+      state.compKind = 'liga';
       state.screen = 'comp';
       render();
       await save();
-      showToast(`Season ${comp.season} started with the new squads`);
+      showToast(`New season started: Städteliga S${liga.season} and Städtepokal S${C.activeComp(state.db, 'cup').season}`);
     };
-    $('tw-cancel').onclick = () => { stopDraftAuto(); state.transferPlan = null; state.draftShown = null; openComp(kind); };
+    $('tw-cancel').onclick = () => { stopDraftAuto(); state.transferPlan = null; state.draftShown = null; state.screen = 'home'; render(); };
     update();
   }
 
@@ -1874,7 +2020,7 @@
     for (const id of res.removed) state.savedIds.delete(id);
     delete state.compHash[comp.id];
     state.pendingDeletes = (state.pendingDeletes || []).concat([comp.id]);
-    state.compTab[kind] = kind === 'league' ? 'div1' : 'groups';
+    state.compTab[kind] = kind === 'cup' ? 'groups' : 'div1';
     openComp(kind);
     if (await save()) showToast(`Season ${comp.season} cancelled. Start it again whenever you like.`);
   }
@@ -1899,7 +2045,7 @@
       C.recordMatch(state.db, comp.id, f.id, C.simulateFixture(state.db, comp, f), 'sim');
     }
     if (comp.status === 'complete') {
-      state.compTab[comp.kind] = comp.kind === 'league' ? 'playoffs' : 'knockout';
+      state.compTab[comp.kind] = comp.kind === 'cup' ? 'knockout' : 'playoffs';
       if (comp.summary.playerOfSeries) setTimeout(() => showToast(`Player of the series: ${comp.summary.playerOfSeries.name}`), 2200);
     }
     render();
@@ -1927,7 +2073,7 @@
   // Plain words: what a team needs (no percentages)
   function stakeNote(comp, scope, r, id) {
     const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope);
-    if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d === 2 ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
+    if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d >= 2 ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
     if (t.status === 'out') return 'Out';
     const nm = x => tname(kind, x);
     const opp = namesJoin(t.left.map(nm));
@@ -2002,6 +2148,19 @@
 
   function divisionHTML(comp, d) {
     const rows = C.divTable(state.db, comp, d);
+    if (comp.kind === 'liga') {
+      const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'liga' && c.season === comp.divisionsFrom) : null;
+      const mv = prev && prev.summary && prev.summary.moves;
+      const nm = id => esc(tname('liga', id));
+      const came = mv ? [...(mv.upTo[d] || []).map(id => `${nm(id)} ⬆`), ...(mv.downTo[d] || []).map(id => `${nm(id)} ⬇`)] : [];
+      const intro = came.length ? `<p class="muted note" style="margin-top:0">New in the ${d}. Liga this season: <b>${came.join(', ')}</b></p>`
+        : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Städteliga season: divisions set by ${comp.seededBy === 'cup' ? 'how far each club got in the last Städtepokal' : 'squad strength'}.</p>` : '';
+      const cls = (i, n) => [i < 4 ? 'q' : '', d > 1 && i < 2 ? 'up' : '', d < 3 && i >= n - 2 ? 'rel' : ''].filter(Boolean).join(' ');
+      const note = `<span class="zone q">Top 4</span> play the semifinals for the ${d}. Liga title.`
+        + (d > 1 ? ` <span class="zone up">Top 2</span> go up to the ${d - 1}. Liga.` : '')
+        + (d < 3 ? ` <span class="zone rel">Bottom 2</span> go down to the ${d + 1}. Liga.` : '');
+      return intro + standingsTable('liga', rows, 0, cls) + `<p class="muted note">${note} Promotion and relegation go by this table. Win 2 pts. Level on points: net run rate decides.</p>` + (comp.stage === 'league' ? raceHTML(comp, { type: 'div', d }) : '');
+    }
     const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
     const moved = prev && prev.summary ? (d === 1 ? prev.summary.promoted : prev.summary.relegated) : null;
     const po = comp.playoffs, bl = po === 2;
@@ -2046,6 +2205,13 @@
   }
   function bracketHTML(comp) {
     const st = s => comp.fixtures.filter(f => f.stage === s);
+    if (comp.kind === 'liga') {
+      const col = (s, d, label, n) => { const l = st(s).filter(f => f.div === d); return `<div class="bcol"><h3>${label}</h3><div class="bcol-list">${Array.from({ length: n }, (_, i) => koMatchHTML(comp, l[i])).join('')}</div></div>`; };
+      return `${comp.stage === 'league' ? '<p class="muted note" style="margin-top:0">These matches are set when the league stage is finished.</p>' : ''}
+        ${[1, 2, 3].map(d => `<h3 class="po-h">${d}. Liga · ${d === 1 ? 'Städteliga title' : 'title'}</h3>
+        <div class="bracket">${col('SF', d, 'Semifinals (1st v 4th, 2nd v 3rd)', 2)}${col('F', d, 'Final', 1)}</div>`).join('')}
+        <p class="muted note">A tied knockout is decided on boundary count. Promotion and relegation go by the league table, not the play-offs.</p>`;
+    }
     if (comp.playoffs) {
       const col = (s, label, n) => `<div class="bcol"><h3>${label}</h3><div class="bcol-list">${Array.from({ length: n }, (_, i) => koMatchHTML(comp, st(s)[i])).join('')}</div></div>`;
       const po = k => comp.fixtures.find(f => f.stage === 'PO' && f.po === k);
@@ -2095,12 +2261,12 @@
 
   function squadsHTML(kind, comp) {
     const pm = pmap();
-    const teams = comp ? C.squadsFor(state.db, comp) : state.db.teams[kind];
+    const teams = comp ? C.squadsFor(state.db, comp) : kind === 'liga' ? C.ligaClubs(state.db).map(id => C.teamOf(state.db, 'cup', id)) : C.teamsOf(state.db, kind);
     const reserves = kind === 'league' ? state.db.players.filter(p => !p.state) : [];
     const card = (t) => `<div class="squad"><h3>${chipTeam(kind, t.id)}</h3><ul>${t.players.map(id => pm[id]).sort((a, b) => b.bat - a.bat).map(p => `<li><button class="plink" data-player="${p.id}">${esc(p.name)}</button>${formIconOf(p.id)}<span class="rt">BAT ${p.bat} · BOWL ${p.bowl} <span class="type-pill ${p.type}">${p.type}</span></span></li>`).join('')}</ul></div>`;
     return `<p class="muted note" style="margin-top:0">${kind === 'league'
       ? 'Each state fields 7 players: its own cities\' players first, with small states topped up from the big ones.'
-      : `Each city fields its ${teams[0].players.length} players.`} The two openers (best batters) don't bowl. 🔥 in form · ❄️ out of form.</p>
+      : kind === 'liga' || C.clubEra(state.db) ? `Each club fields the same ${teams[0].players.length} players in the Städteliga and the Städtepokal.` : `Each city fields its ${teams[0].players.length} players.`} The two openers (best batters) don't bowl. 🔥 in form · ❄️ out of form.</p>
       <div class="squads">${teams.map(card).join('')}</div>
       ${reserves.length ? `<p class="muted note">Not in a state squad this year (they still play in the Städtepokal): ${reserves.map(p => esc(p.name)).join(', ')}</p>` : ''}`;
   }
@@ -2143,7 +2309,9 @@
   function renderPlayers() {
     const db = state.db, pm = pmap();
     const f = state.plFilter, q = state.plSearch.trim().toLowerCase();
-    let rows = db.players.map(p => ({ p, s: C.fmtStats(db.stats[p.id][f]) }));
+    const lk = C.leagueKind(db), hasOld = db.competitions.some(c => c.kind === 'league');
+    if (!(db.stats[db.players[0].id] || {})[f]) state.plFilter = 'all';
+    let rows = db.players.map(p => ({ p, s: C.fmtStats((db.stats[p.id] || {})[state.plFilter] || db.stats[p.id].all) }));
     if (q) rows = rows.filter(r => r.p.name.toLowerCase().includes(q) || tname('cup', r.p.city).toLowerCase().includes(q) || (r.p.state && tname('league', r.p.state).toLowerCase().includes(q)));
     const key = state.plSort;
     const num = (r) => {
@@ -2161,11 +2329,11 @@
       <div class="setup-hero"><h1>Player stats</h1><p>All 120 players. Career totals combine both competitions; switch to see each one alone. Tap a column to sort, tap a name for the full record.</p></div>
       <div class="panel">
         <div class="pl-tools">
-          <div class="chips">${fChip('all', 'Career')}${fChip('league', 'Länderliga')}${fChip('cup', 'Städtepokal')}</div>
-          <input id="pl-search" type="search" placeholder="Search name, city or state" value="${esc(state.plSearch)}">
+          <div class="chips">${fChip('all', 'Career')}${lk === 'liga' ? fChip('liga', 'Städteliga') : ''}${fChip('cup', 'Städtepokal')}${hasOld ? fChip('league', lk === 'liga' ? 'Länderliga (old)' : 'Länderliga') : ''}</div>
+          <input id="pl-search" type="search" placeholder="Search name or club" value="${esc(state.plSearch)}">
         </div>
         <div class="table-scroll"><table class="card players-table"><thead><tr>${PL_COLS.map(([k, l]) => `<th class="${k === key ? 'sorted' : ''}"><button data-sort="${k}">${l}</button></th>`).join('')}</tr></thead><tbody>
-          ${rows.map(({ p, s }) => `<tr><td><button class="plink" data-player="${p.id}">${esc(p.name)}</button><span class="how">${esc(tname('cup', p.city))}${p.state ? ' · ' + esc(C.teamOf(db, 'league', p.state).short) : ''}</span></td>
+          ${rows.map(({ p, s }) => `<tr><td><button class="plink" data-player="${p.id}">${esc(p.name)}</button><span class="how">${esc(tname('cup', p.city))}${p.state && lk === 'league' ? ' · ' + esc(C.teamOf(db, 'league', p.state).short) : ''}</span></td>
             <td>${s.mat}</td><td><b>${s.runs}</b></td><td>${s.balls}</td><td>${s.hsText}</td><td>${s.avg}</td><td>${s.sr}</td><td>${s.f4}</td><td>${s.s6}</td>
             <td><b>${s.wkts}</b></td><td>${s.overs}</td><td>${s.econ}</td><td>${s.best}</td><td>${s.motm}</td><td>${s.pos}</td></tr>`).join('')}
         </tbody></table></div>
@@ -2183,7 +2351,7 @@
   }
 
   function teamHistoryHTML(pid) {
-    const rows = ['league', 'cup'].map(kind => {
+    const rows = ['liga', 'cup', 'league'].filter(k => state.db.competitions.some(c => c.kind === k)).map(kind => {
       const list = state.db.competitions.filter(c => c.kind === kind).map(c => {
         const t = C.squadsFor(state.db, c).find(x => x.players.includes(pid));
         return `S${c.season} ${t ? esc(t.short || t.name) : '–'}`;
@@ -2222,6 +2390,20 @@
     else if (pof) line += (line ? ' · ' : '') + (pof.po === 'rel' ? (winnerOf(pof) === id ? 'won relegation play-off' : 'lost relegation play-off') : (winnerOf(pof) === id ? 'won promotion play-off' : 'lost promotion play-off'));
     const pos = (rows) => { const i = rows.findIndex(r => r.id === id); return i < 0 ? null : i + 1; };
     let table = '';
+    if (c.kind === 'liga') {
+      const d = +Object.keys(c.divisions).find(k => c.divisions[k].includes(id));
+      const f = c.fixtures.find(x => x.stage === 'F' && x.div === d && x.result);
+      line = ''; cls = '';
+      if (f && winnerOf(f) === id) { line = d === 1 ? 'Champion' : `${d}. Liga champion`; cls = d === 1 ? 'champ' : 'champ2'; }
+      else if (f && (f.home === id || f.away === id)) { line = `${d}. Liga runner-up`; cls = 'runner'; }
+      else if (fx.some(x => x.stage === 'SF' && x.result && winnerOf(x) !== id)) line = 'Lost in the semifinal';
+      table = `${d}. Liga · ${ordinal(pos(C.divTable(db, c, d)))}`;
+      const mv = done ? C.ligaMoves(db, c) : null;
+      if (mv && mv.down.includes(id)) table += ' · relegated';
+      if (mv && mv.up.includes(id)) table += ' · promoted';
+      const played = fx.filter(x => x.result), won = played.filter(x => winnerOf(x) === id).length;
+      return { season: c.season, comp: c, div: d, line, cls, table, rec: `${won}W ${played.length - won}L`, running: !done };
+    }
     if (c.divisions) {
       const d = c.divisions[1].includes(id) ? 1 : 2, p = pos(C.divTable(db, c, d)), n = c.divisions[d].length;
       table = `${d}. Liga · ${ordinal(p)}`;
@@ -2237,14 +2419,55 @@
       else if (g1) table = `Group ${g1} · ${ordinal(pos(C.groupTable(db, c, g1)))}`;
     }
     const played = fx.filter(f => f.result), won = played.filter(f => winnerOf(f) === id).length;
-    return { season: c.season, line, cls, table, rec: `${won}W ${played.length - won}L`, running: !done };
+    return { season: c.season, comp: c, line, cls, table, rec: `${won}W ${played.length - won}L`, running: !done };
+  }
+
+  // A club's honours across the Städteliga and the Städtepokal (a Double = division title + cup in one season)
+  function clubHonours(id) {
+    const db = state.db;
+    const h = { cup: 0, liga: { 1: 0, 2: 0, 3: 0 }, up: 0, down: 0, doubles: [] };
+    const won = c => { const f = c.fixtures.find(x => x.stage === 'F' && x.result && (c.kind !== 'liga' || c.divisions && Object.keys(c.divisions).some(k => c.divisions[k].includes(id) && x.div === +k))); return f && f.result.winner === id; };
+    for (const c of db.competitions.filter(x => x.status === 'complete')) {
+      if (c.kind === 'cup' && won(c)) h.cup++;
+      if (c.kind === 'liga') {
+        const d = +Object.keys(c.divisions).find(k => c.divisions[k].includes(id));
+        if (!d) continue;
+        if (won(c)) h.liga[d]++;
+        const mv = C.ligaMoves(db, c);
+        if (mv.up.includes(id)) h.up++;
+        if (mv.down.includes(id)) h.down++;
+      }
+    }
+    for (let n = 1; db.clubs && n <= (db.clubs.seasons || 0); n++) {
+      const cs = C.clubSeasonComps(db, n), l = cs.find(c => c.kind === 'liga'), cp = cs.find(c => c.kind === 'cup');
+      if (l && cp && l.status === 'complete' && cp.status === 'complete' && won(l) && won(cp)) {
+        const d = +Object.keys(l.divisions).find(k => l.divisions[k].includes(id));
+        h.doubles.push({ season: l.season, d });
+      }
+    }
+    return h;
+  }
+  function honoursHTML(h) {
+    const chips = [];
+    if (h.doubles.length) chips.push(`<span class="hon dbl">⭐ Double ×${h.doubles.length} <small>(${h.doubles.map(x => `S${x.season}, ${x.d}. Liga`).join('; ')})</small></span>`);
+    if (h.liga[1]) chips.push(`<span class="hon gold">🏆 Städteliga champion ×${h.liga[1]}</span>`);
+    if (h.cup) chips.push(`<span class="hon gold">🏆 Städtepokal ×${h.cup}</span>`);
+    for (const d of [2, 3]) if (h.liga[d]) chips.push(`<span class="hon">🥈 ${d}. Liga champion ×${h.liga[d]}</span>`);
+    if (h.up) chips.push(`<span class="hon up">⬆ ${h.up} promotion${h.up === 1 ? '' : 's'}</span>`);
+    if (h.down) chips.push(`<span class="hon down">⬇ ${h.down} relegation${h.down === 1 ? '' : 's'}</span>`);
+    return chips.length ? `<div class="honours">${chips.join('')}</div>` : '<p class="muted" style="font-size:13px">No honours yet.</p>';
   }
 
   function openTeam(kind, id) {
-    const db = state.db, t = C.teamOf(db, kind, id), pm = pmap();
+    const db = state.db, pm = pmap();
+    // a city club plays both the Städteliga and the Städtepokal: one card for both
+    const isClub = kind === 'liga' || (kind === 'cup' && db.competitions.some(c => c.kind === 'liga'));
+    if (kind === 'liga') kind = 'cup';
+    const t = C.teamOf(db, kind, id);
     if (!t) return;
-    const comps = db.competitions.filter(c => c.kind === kind);
-    const mine = db.matches.filter(m => m.comp === kind && m.innings.some(I => I.team === id));
+    const kinds = isClub ? ['liga', 'cup'] : [kind];
+    const comps = db.competitions.filter(c => kinds.includes(c.kind)).sort((a, b) => (a.startedAt || '').localeCompare(b.startedAt || ''));
+    const mine = db.matches.filter(m => kinds.includes(m.comp) && m.innings.some(I => I.team === id));
     // last 5 matches
     const last5 = mine.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(-5).reverse();
     const form = last5.slice().reverse().map(m => m.winner === id ? '<span class="form w">W</span>' : '<span class="form l">L</span>').join('');
@@ -2254,14 +2477,14 @@
       const opp = C.teamOf(db, kind, them.team) || { name: them.team };
       const won = m.winner === id;
       return `<li><span class="form ${won ? 'w' : 'l'}">${won ? 'W' : 'L'}</span>
-        <div class="tm-match"><div>vs <b>${esc(opp.name)}</b> <span class="muted">· S${m.season} ${esc(C.STAGE_LABEL[m.stage] || m.stage)}</span></div>
+        <div class="tm-match"><div>vs <b>${esc(opp.name)}</b> <span class="muted">· ${isClub ? esc(m.compName) + ' ' : ''}S${m.season} ${esc(C.STAGE_LABEL[m.stage] || m.stage)}</span></div>
         <div class="num">${us.runs}/${us.wkts} (${E.oversStr(us.balls)}) · ${them.runs}/${them.wkts} (${E.oversStr(them.balls)})</div>
         <div class="muted" style="font-size:12px">${esc(m.result)}${m.motm && pm[m.motm] ? ` · PoM ${esc(pm[m.motm].name)}` : ''}</div></div>
         <button class="plink" data-match="${m.id}">Card</button></li>`;
     }).join('');
     // season history
-    const hist = comps.map(c => teamSeasonLine(c, kind, id)).filter(Boolean).reverse();
-    const histRows = hist.map(h => `<li><span class="tm-season">S${h.season}</span>
+    const hist = comps.map(c => teamSeasonLine(c, c.kind, id)).filter(Boolean).reverse();
+    const histRows = hist.map(h => `<li><span class="tm-season">${isClub ? `<span class="tm-comp ps-${h.comp.kind}">${h.comp.kind === 'liga' ? 'Liga' : 'Pokal'}</span>` : ''}S${h.season}</span>
       <span class="tm-finish ${h.cls}">${h.cls === 'champ' ? '🏆 ' : h.cls === 'champ2' ? '🥈 ' : ''}${esc(h.line || h.table || '–')}${h.line && h.table ? `<span class="muted"> · ${esc(h.table)}</span>` : ''}${h.running ? ' <span class="muted">(running)</span>' : ''}</span>
       <span class="muted num">${h.rec}</span></li>`).join('');
     const titles = hist.filter(h => h.cls === 'champ').length;
@@ -2277,11 +2500,13 @@
     const nm = pid => pm[pid] ? `<button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button>${formIconOf(pid)}` : esc(pid);
     const batRows = topBat.map(([pid, s]) => `<li>${nm(pid)}<span class="num">${s.r} <small>runs · ${s.inn} inns · SR ${s.b ? (s.r * 100 / s.b).toFixed(0) : '–'} · HS ${s.hs}</small></span></li>`).join('');
     const bowlRows = topBowl.map(([pid, s]) => `<li>${nm(pid)}<span class="num">${s.w} <small>wkts · econ ${s.balls ? (s.r * 6 / s.balls).toFixed(1) : '–'}</small></span></li>`).join('');
-    const curComp = C.activeComp(db, kind) || C.lastComp(db, kind);
-    const squad = (curComp ? C.squadsFor(db, curComp) : db.teams[kind]).find(x => x.id === id);
-    modalCard.innerHTML = `<div class="cc-kicker">${esc(C.COMPS[kind].name)}${titles ? ` · ${titles} title${titles === 1 ? '' : 's'}` : ''}</div>
+    const curComp = C.activeComp(db, 'cup') && kind === 'cup' ? C.activeComp(db, 'cup') : C.activeComp(db, kind) || C.lastComp(db, kind);
+    const squad = (curComp ? C.squadsFor(db, curComp) : C.teamsOf(db, kind)).find(x => x.id === id);
+    const cupOnly = isClub && db.clubs && db.clubs.cupOnly && db.clubs.cupOnly.includes(id);
+    modalCard.innerHTML = `<div class="cc-kicker">${isClub ? `City club · ${cupOnly ? 'Städtepokal only' : 'Städteliga + Städtepokal'}` : `${esc(C.COMPS[kind].name)}${titles ? ` · ${titles} title${titles === 1 ? '' : 's'}` : ''}`}</div>
       <h2 class="tm-title"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</h2>
       ${form ? `<div class="tm-form">Form ${form}</div>` : ''}
+      ${isClub ? `<h3 class="tm-h">Honours</h3>${honoursHTML(clubHonours(id))}` : ''}
       <h3 class="tm-h">Last 5 matches</h3>
       ${lastRows ? `<ul class="tm-list">${lastRows}</ul>` : '<p class="muted">No matches played yet.</p>'}
       <h3 class="tm-h">Season history</h3>
@@ -2340,6 +2565,10 @@
     const formLine = fm.bat || fm.bowl
       ? `<div class="form-line">${formIcon(fm) || '•'} Form (last 5 matches): batting <b>${sgn(fm.bat)}</b> · bowling <b>${sgn(fm.bowl)}</b> <span class="muted">→ plays as BAT ${p.bat + fm.bat} · BOWL ${p.bowl + fm.bowl}</span></div>`
       : '<div class="form-line muted">Form: steady (no bonus or penalty)</div>';
+    // Städteliga rows once the club era started; the old Länderliga only if the player has matches in it
+    const showLiga = C.clubEra(state.db);
+    const hasOld = (st.league && st.league.mat > 0) || (!showLiga);
+    const oldLbl = showLiga ? 'Länderliga (old)' : 'Länderliga';
     modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
       <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
       ${formLine}
@@ -2348,17 +2577,17 @@
         <div class="rename-row"><input id="rename-in" maxlength="30" value="${esc(p.name)}" autocomplete="off"><button class="primary" type="submit">Save</button><button class="secondary" type="button" id="rename-cancel">Cancel</button></div>
         <p class="form-msg" id="rename-msg"></p>
       </form>
-      <p class="muted" style="margin:0 0 12px;font-size:14px">Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}<br>
+      <p class="muted" style="margin:0 0 12px;font-size:14px">${C.clubEra(state.db) ? `Club: <b>${esc(tname('cup', p.city))}</b>${hasOld ? ` · Länderliga (old): ${p.state ? esc(tname('league', p.state)) : '–'}` : ''}` : `Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}`}<br>
         Player of the match: <b>${st.all.motm}</b> · Player of the series: <b>${st.all.pos}</b>${seriesTitles(pid)}</p>
       ${teamHistoryHTML(pid)}
       <h3>Batting</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Mat</th><th>Inn</th><th>Runs</th><th>Balls</th><th>HS</th><th>Avg</th><th>SR</th><th>4s</th><th>6s</th><th>30/50</th></tr></thead><tbody>
-        ${row('Career', st.all, 'all')}${row('Länderliga', st.league, 'league')}${row('Städtepokal', st.cup, 'cup')}</tbody></table></div>
+        ${row('Career', st.all, 'all')}${showLiga ? row('Städteliga', st.liga, 'liga') : ''}${row('Städtepokal', st.cup, 'cup')}${hasOld ? row(oldLbl, st.league, 'league') : ''}</tbody></table></div>
       <h3 style="margin-top:14px">Bowling</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Ov</th><th>M</th><th>R</th><th>W</th><th>Best</th><th>Avg</th><th>Econ</th><th>Dots</th></tr></thead><tbody>
-        ${brow('Career', st.all, 'all')}${brow('Länderliga', st.league, 'league')}${brow('Städtepokal', st.cup, 'cup')}</tbody></table></div>
+        ${brow('Career', st.all, 'all')}${showLiga ? brow('Städteliga', st.liga, 'liga') : ''}${brow('Städtepokal', st.cup, 'cup')}${hasOld ? brow(oldLbl, st.league, 'league') : ''}</tbody></table></div>
       <h3 style="margin-top:14px">Recent matches</h3>
-      <div class="ps-recents">${recentHTML('league', 'Länderliga')}${recentHTML('cup', 'Städtepokal')}</div>
+      <div class="ps-recents">${showLiga ? recentHTML('liga', 'Städteliga') : ''}${recentHTML('cup', 'Städtepokal')}${hasOld && (!showLiga || st.liga.mat < 5) ? recentHTML('league', oldLbl) : ''}</div>
       <div style="margin-top:14px"><button class="primary" id="btn-close-modal">Close</button></div>`;
     modal.hidden = false;
     document.getElementById('btn-close-modal').onclick = () => { modal.hidden = true; };
@@ -2414,24 +2643,24 @@
     const card = c => {
       if (c.status !== 'complete') {
         const done = c.fixtures.filter(f => f.result).length;
-        return `<div class="panel hist"><div class="cc-kicker">${c.kind === 'league' ? 'League' : 'Tournament'} · in progress</div><h2>${c.name} · Season ${c.season}</h2><p class="muted">${C.STAGE_LABEL[c.stage]} · ${done} of ${c.fixtures.length} matches played</p><button class="secondary" data-open="${c.kind}">Open</button></div>`;
+        return `<div class="panel hist"><div class="cc-kicker">${c.kind === 'cup' ? 'Tournament' : 'League'} · in progress</div><h2>${c.name} · Season ${c.season}</h2><p class="muted">${C.STAGE_LABEL[c.stage]} · ${done} of ${c.fixtures.length} matches played</p><button class="secondary" data-open="${c.kind}">Open</button></div>`;
       }
       const S = c.summary;
       const ko = k => `<div class="hk"><div class="cc-kicker">${esc(k.label)}</div><div>${esc(k.result)}</div><div class="muted" style="font-size:12px">${esc(k.score)}</div><button class="plink" data-match="${k.id}">Scorecard</button></div>`;
       const lst = (arr, key) => `<ol class="mini-list">${arr.slice(0, 3).map(x => `<li><button class="plink" data-player="${x.pid}">${esc(x.name)}</button> <span class="num">${key === 'runs' ? x.runs : x.wkts + ' wkts'}</span></li>`).join('')}</ol>`;
       return `<div class="panel hist">
-        <div class="cc-kicker">${c.kind === 'league' ? 'League' : 'Tournament'} · Season ${c.season} · finished ${new Date(c.finishedAt).toLocaleDateString()}</div>
+        <div class="cc-kicker">${c.kind === 'cup' ? 'Tournament' : 'League'} · Season ${c.season} · finished ${new Date(c.finishedAt).toLocaleDateString()}</div>
         <h2>${c.name} · Season ${c.season}</h2>
         <div class="hist-top">
-          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div>${S.div2Champion ? `<div class="muted" style="font-size:13px">2. Liga champions: ${esc(S.div2Champion)}</div>` : ''}${S.promoted ? `<div class="muted" style="font-size:13px">⬆ ${S.promoted.map(esc).join(', ')} · ⬇ ${S.relegated.map(esc).join(', ')}</div>` : ''}</div></div>
+          <div class="hist-champ"><span class="trophy-s">🏆</span><div><b>${esc(S.champion)}</b> champions<div class="muted" style="font-size:13px">Runners-up: ${esc(S.runnerUp)}</div>${S.div2Champion ? `<div class="muted" style="font-size:13px">2. Liga champions: ${esc(S.div2Champion)}</div>` : ''}${S.divChampions ? [2, 3].filter(d => S.divChampions[d]).map(d => `<div class="muted" style="font-size:13px">${d}. Liga champions: ${esc(S.divChampions[d].champion)}</div>`).join('') : ''}${S.promoted ? `<div class="muted" style="font-size:13px">⬆ ${S.promoted.map(esc).join(', ')} · ⬇ ${S.relegated.map(esc).join(', ')}</div>` : ''}</div></div>
           ${S.playerOfSeries ? `<div class="hist-champ pos"><span class="trophy-s">👑</span><div><div class="cc-kicker">Player of the series</div><b><button class="plink" data-player="${S.playerOfSeries.pid}">${esc(S.playerOfSeries.name)}</button></b><div class="muted" style="font-size:13px">${S.playerOfSeries.runs} runs · ${S.playerOfSeries.wkts} wkt${S.playerOfSeries.wkts === 1 ? '' : 's'} · ${S.playerOfSeries.mat} matches</div></div></div>` : ''}
         </div>
         <div class="hist-grid">
-          ${ko(S.final)}${S.semifinals.map(ko).join('')}${S.div2Final ? ko(S.div2Final) : ''}${S.relegationPlayoff ? ko(S.relegationPlayoff) : ''}${S.promotionPlayoff ? ko(S.promotionPlayoff) : ''}
+          ${ko(S.final)}${S.semifinals.map(ko).join('')}${S.div2Final ? ko(S.div2Final) : ''}${S.divChampions ? [2, 3].filter(d => S.divChampions[d]).map(d => ko(S.divChampions[d].final)).join('') : ''}${S.relegationPlayoff ? ko(S.relegationPlayoff) : ''}${S.promotionPlayoff ? ko(S.promotionPlayoff) : ''}
           <div class="hk"><div class="cc-kicker">Top run scorers</div>${lst(S.topRuns, 'runs')}</div>
           <div class="hk"><div class="cc-kicker">Top wicket takers</div>${lst(S.topWkts, 'wkts')}</div>
         </div>
-      </div>`;
+      </div>${c.kind === 'liga' && c.clubSeason ? (() => { const A = clubSeasonAwards(c.clubSeason); return A ? `<div class="panel hist"><div class="cc-kicker">Season awards · Städteliga S${A.liga.season} + Städtepokal S${A.cup.season}</div>${clubSeasonAwardsHTML(A)}</div>` : ''; })() : ''}`;
     };
     app.innerHTML = `<section>
       <div class="setup-hero"><h1>History</h1><p>Every season of both competitions, with finals, semifinals and leading players.${state.store === 'cloud' ? ' Stored in your MongoDB database.' : state.store === 'server' ? ' Stored in data/history.json.' : ''}</p>
@@ -2446,7 +2675,7 @@
         ${bb ? rec('Best bowling', `${bb.w}/${bb.r}`, esc(bb.m.compName), bb.pid, bb.m.id) : ''}
         ${Object.keys(champs).length ? `<div class="rec"><div class="cc-kicker">Most titles</div><div class="rec-val small">${Object.entries(champs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, n]) => `${esc(t)} ${n}`).join(' · ')}</div></div>` : ''}
       </div></div>` : ''}
-      ${comps.length ? comps.map(card).join('') : '<div class="panel"><p class="muted" style="margin:0">No seasons yet. Start the Länderliga or the Städtepokal from the menu.</p></div>'}
+      ${comps.length ? comps.map(card).join('') : '<div class="panel"><p class="muted" style="margin:0">No seasons yet. Start the first season from the home page.</p></div>'}
     </section>`;
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
