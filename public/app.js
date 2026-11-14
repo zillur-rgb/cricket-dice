@@ -1562,9 +1562,18 @@
     const db = state.db;
     const act = [C.leagueKind(db), 'cup'].map(k => C.activeComp(db, k)).filter(c => c && C.pendingFixtures(c).length);
     if (!act.length) return null;
+    // A whole round at a time: finish the round you're in before switching competitions
+    const roundOf = c => { const f = C.pendingFixtures(c)[0]; return { stage: f.stage, round: f.round }; };
+    const inRound = (c, f, r) => f.stage === r.stage && f.round === r.round;
+    const started = c => { const r = roundOf(c); return c.fixtures.some(f => f.result && inRound(c, f, r)); };
+    const going = act.filter(started);
+    if (going.length) return going.sort((a, b) => C.pendingFixtures(a).filter(f => inRound(a, f, roundOf(a))).length - C.pendingFixtures(b).filter(f => inRound(b, f, roundOf(b))).length)[0];
+    // between rounds: the competition that's further behind goes next (league first on a tie)
     const frac = c => c.fixtures.filter(f => f.result).length / (EXPECTED[c.kind] || c.fixtures.length);
-    return act.sort((a, b) => frac(a) - frac(b))[0];
+    return act.sort((a, b) => frac(a) - frac(b) || (a.kind === 'cup') - (b.kind === 'cup'))[0];
   }
+  // how many matches are left in the round this fixture belongs to
+  const roundLeft = (comp, f) => C.pendingFixtures(comp).filter(x => x.stage === f.stage && x.round === f.round).length;
   function nextUpHTML() {
     const comp = nextUpComp();
     if (!comp) return '';
@@ -1574,7 +1583,7 @@
       <div class="next-info">
         <div class="cc-kicker">Next up · ${esc(fixtureLabel(comp, f))}</div>
         <div class="next-teams">${chipTeam(comp.kind, f.home)}<span class="vs">vs</span>${chipTeam(comp.kind, f.away)}</div>
-        <div class="muted" style="font-size:13px">${comp.overs} overs · ${esc(E.PITCHES[f.pitch].label)} pitch${other ? ` · alternates with the ${esc(other.name)} so both finish together` : ''}</div>
+        <div class="muted" style="font-size:13px">${comp.overs} overs · ${esc(E.PITCHES[f.pitch].label)} pitch · ${roundLeft(comp, f)} match${roundLeft(comp, f) === 1 ? '' : 'es'} left in this round${other ? `, then the ${esc(other.name)}` : ''}</div>
       </div>
       <div class="next-actions"><button class="primary" data-nu-play="${f.id}">Play</button><button class="secondary" data-nu-sim="${f.id}">Quick sim</button></div>
     </div>`;
