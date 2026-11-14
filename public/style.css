@@ -748,3 +748,9 @@ h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
 .season-banner > div { min-width: 0; flex: 1 1 320px; }
 .season-wait { margin: 0 0 12px; }
 .nextup { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+
+/* bowler picker: a stats button next to each bowler */
+.bo-row { display: flex; gap: 6px; align-items: stretch; }
+.bo-row .bowler-opt { flex: 1; min-width: 0; }
+.bo-stats { flex: none; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; }
+.bo-stats:hover { color: var(--text); border-color: var(--muted); }

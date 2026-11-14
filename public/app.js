@@ -10,6 +10,7 @@
   // choosing the next bowler and the two-devices question.
   function closeModalSoft() {
     if (modal.hidden || modalCard.querySelector('.bowler-list, #cf-mine')) return;
+    if (state.modalBack) { const back = state.modalBack; state.modalBack = null; back(); return; }
     const cancel = modalCard.querySelector('#cb-cancel');
     if (cancel) cancel.click(); else modal.hidden = true;
   }
@@ -644,14 +645,14 @@
       return `<tr class="${atCrease ? 'batting' : ''}"><td>${pLink(p)}<span class="how">${esc(how)}</span></td>
         <td><b>${b.runs}</b></td><td>${b.balls}</td><td>${b.fours}</td><td>${b.sixes}</td><td>${sr}</td></tr>`;
     }).join('');
-    const dnb = I.superOver ? [] : I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].name);
+    const dnb = I.superOver ? [] : I.batters.filter(b => !b.batted).map(b => bt.players[b.idx]);
     const ex = I.extras.wd + I.extras.nb;
     const fow = I.fow.map(f => `${f.runs}-${f.wkt} (${esc(f.batter)}, ${f.over})`).join(', ');
     return `<div class="scorecard">
       <div class="inn-title"><h2>${I.superOver ? `<span class="so-tag">${I.superOver > 1 ? I.superOver + '. ' : ''}Super Over</span>` : ''}${esc(bt.name)}</h2><span class="num">${I.runs}/${I.wkts} (${E.oversStr(I.balls)} ov)</span></div>
       <table class="card"><thead><tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="card-meta">
-        Extras ${ex} (wd ${I.extras.wd}, nb ${I.extras.nb})${dnb.length ? `<br>Did not bat: ${esc(dnb.join(', '))}` : ''}${fow ? `<br>Fall of wickets: ${fow}` : ''}
+        Extras ${ex} (wd ${I.extras.wd}, nb ${I.extras.nb})${dnb.length ? `<br>Did not bat: ${dnb.map(p => pLink(p)).join(', ')}` : ''}${fow ? `<br>Fall of wickets: ${fow}` : ''}
       </div>
       <div class="table-scroll"><table class="card"><thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th><th>Dots</th><th>Ext</th></tr></thead>
       <tbody>${bowlingRows(I, { live: false })}</tbody></table></div>
@@ -671,13 +672,17 @@
       <div class="bowler-list">${opts.map(b => {
         const s = i.bowlers[b.idx];
         const fig = s ? `${oversFig(s.balls)}-${s.maidens}-${s.runs}-${s.wkts} · econ ${(s.runs * 6 / s.balls).toFixed(1)}` : 'yet to bowl';
-        return `<button class="bowler-opt" data-b="${b.idx}">
+        const pid = b.pid;
+        return `<div class="bo-row"><button class="bowler-opt" data-b="${b.idx}">
           <span class="bn">${esc(b.name)}${formIcon(b.form)}${state.match.secondOverPenalty && b.overs >= 1 && !inn().superOver ? ` <span class="muted" style="font-weight:400">· 2nd over: skill ${Math.max(5, b.bowl - state.match.secondOverPenalty)}</span>` : ''}${b.idx === suggested ? ' <span class="muted" style="font-weight:400">· suggested</span>' : ''}</span>
           <span class="type-pill ${b.type || ''}">${b.type || 'part-time'}</span>
           <span class="bm">Skill ${b.bowl} · ${fig} · ${m.maxOversPerBowler - b.overs} over${m.maxOversPerBowler - b.overs === 1 ? '' : 's'} left</span>
-        </button>`;
+        </button>${pid && pmap()[pid] ? `<button class="bo-stats" data-pstats="${pid}" aria-label="Stats of ${esc(b.name)}">Stats</button>` : ''}</div>`;
       }).join('')}</div>`;
     modal.hidden = false;
+    state.modalBack = null;
+    // look at a bowler's record, then come back to choosing
+    modalCard.querySelectorAll('[data-pstats]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.pstats, { back: openBowlerPicker }); });
     modalCard.querySelectorAll('[data-b]').forEach(b => b.onclick = () => {
       E.setBowler(m, Number(b.dataset.b));
       modal.hidden = true;
@@ -2282,7 +2287,7 @@
       <div class="table-scroll"><table class="card"><thead><tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead><tbody>
         ${I.batting.map(b => `<tr><td><button class="plink" data-player="${b.pid}">${esc(pm[b.pid].name)}</button><span class="how">${esc(b.how)}</span></td><td><b>${b.r}</b></td><td>${b.b}</td><td>${b.f4}</td><td>${b.s6}</td><td>${b.b ? (b.r * 100 / b.b).toFixed(0) : '–'}</td></tr>`).join('')}
       </tbody></table></div>
-      <div class="card-meta">Extras ${I.extras}${I.dnb.length ? ` · Did not bat: ${I.dnb.map(p => esc(pm[p].name)).join(', ')}` : ''}</div>
+      <div class="card-meta">Extras ${I.extras}${I.dnb.length ? ` · Did not bat: ${I.dnb.map(p => `<button class="plink" data-player="${p}">${esc(pm[p].name)}</button>`).join(', ')}` : ''}</div>
       <div class="table-scroll"><table class="card"><thead><tr><th>${esc(tname(kind, bowlTeam))} bowling</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th></tr></thead><tbody>
         ${I.bowling.map(b => `<tr><td><button class="plink" data-player="${b.pid}">${esc(pm[b.pid].name)}</button></td><td>${E.oversStr(b.balls).replace('.0', '')}</td><td>${b.m}</td><td>${b.r}</td><td><b>${b.w}</b></td><td>${b.balls ? (b.r * 6 / b.balls).toFixed(1) : '–'}</td></tr>`).join('')}
       </tbody></table></div><div style="height:14px"></div>`;
@@ -2536,8 +2541,12 @@
     const [kind, id] = e.target.dataset.team.split(':'); openTeam(kind, id);
   });
 
-  function openPlayer(pid) {
-    const db = state.db, p = pmap()[pid], st = db.stats[pid];
+  function openPlayer(pid, opts) {
+    const db = state.db, p = pmap()[pid];
+    // stats saved by an older version may miss a competition: fill in empty ones
+    const st0 = db.stats[pid] || {};
+    const st = { all: C.blankStats(), league: C.blankStats(), liga: C.blankStats(), cup: C.blankStats(), ...st0 };
+    state.modalBack = opts && opts.back ? opts.back : null;
     // Career / Länderliga / Städtepokal each get their own colour
     const lbl = (label, k) => `<td class="ps-lbl"><span class="ps-dot"></span>${label}</td>`;
     const row = (label, s, k) => { s = C.fmtStats(s); return `<tr class="ps-${k}">${lbl(label, k)}<td>${s.mat}</td><td>${s.inn}</td><td><b>${s.runs}</b></td><td>${s.balls}</td><td>${s.hsText}</td><td>${s.avg}</td><td>${s.sr}</td><td>${s.f4}</td><td>${s.s6}</td><td>${s.thirties}/${s.fifties}</td></tr>`; };
@@ -2588,10 +2597,10 @@
         ${brow('Career', st.all, 'all')}${showLiga ? brow('Städteliga', st.liga, 'liga') : ''}${brow('Städtepokal', st.cup, 'cup')}${hasOld ? brow(oldLbl, st.league, 'league') : ''}</tbody></table></div>
       <h3 style="margin-top:14px">Recent matches</h3>
       <div class="ps-recents">${showLiga ? recentHTML('liga', 'Städteliga') : ''}${recentHTML('cup', 'Städtepokal')}${hasOld && (!showLiga || st.liga.mat < 5) ? recentHTML('league', oldLbl) : ''}</div>
-      <div style="margin-top:14px"><button class="primary" id="btn-close-modal">Close</button></div>`;
+      <div style="margin-top:14px"><button class="primary" id="btn-close-modal">${state.modalBack ? '← Back' : 'Close'}</button></div>`;
     modal.hidden = false;
-    document.getElementById('btn-close-modal').onclick = () => { modal.hidden = true; };
-    modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
+    document.getElementById('btn-close-modal').onclick = () => { if (state.modalBack) { const back = state.modalBack; state.modalBack = null; back(); } else modal.hidden = true; };
+    modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => { state.modalBack = null; openMatchCard(b.dataset.match); });
     const form = document.getElementById('rename-form');
     document.getElementById('btn-rename').onclick = () => { form.hidden = false; const i = document.getElementById('rename-in'); i.focus(); i.select(); };
     document.getElementById('rename-cancel').onclick = () => { form.hidden = true; };
