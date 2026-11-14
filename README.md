@@ -44,19 +44,26 @@ Both ask which profile and its PIN. The site address is remembered after the fir
 
 ## Competitions
 
-| | Länderliga (league) | Städtepokal (tournament) |
+20 **city clubs**, one squad of 6 each, play both competitions in one season. 18 clubs play the Städteliga, all 20 the Städtepokal (the 2 clubs that finished lowest in the last Städtepokal before the switch play only the cup).
+
+| | Städteliga (league) | Städtepokal (tournament) |
 |---|---|---|
-| Teams | 16 German states in two divisions (1. Liga, 2. Liga) | 20 German cities |
-| Players per team | 7 | 6 |
-| Overs | 5 (max 1 per bowler) | 6 (max 2 per bowler; batters retire not out after 12 balls) |
-| Format | each division plays its own 8 teams once (56 matches); in each division the top 4 → semifinals → final (1. Liga final = Länderliga champion, 2. Liga final = 2. Liga champion); 1. Liga 7th + 8th go down, 2. Liga 1st + 2nd go up, and a Bundesliga-style play-off 1. Liga 6th v 2. Liga 3rd decides who plays in the 1. Liga next season (63 matches) | 5 groups of 4 → top 2 → second round, 2 groups of 5 → top 2 → semifinals → final (53 matches) |
+| Teams | 18 city clubs in three divisions of 6 (1. Liga, 2. Liga, 3. Liga) | 20 city clubs |
+| Players per team | 6 (same squad in both) | 6 |
+| Overs | 5 (4 bowlers, max 2 each) | 6 (max 2 per bowler; batters retire not out after 12 balls) |
+| Format | each division plays its own 6 clubs once (45 matches); in each division the top 4 → semifinals → final (1. Liga final = Städteliga champion, 2./3. Liga finals = division champions); by the table, the bottom 2 of the 1. and 2. Liga go down and the top 2 of the 2. and 3. Liga go up (54 matches) | 5 groups of 4 → top 2 → second round, 2 groups of 5 → top 2 → semifinals → final (53 matches) |
+
+- **One season:** the home page's *Next up* card alternates between the two competitions so they finish together. When both are finished, one draft sets the squads for the next season and both start together.
+- **Club honours:** a club's card shows both competitions, its season history, and its honours: Städteliga and division titles, Städtepokal wins, promotions, relegations and **Doubles** (division title + Städtepokal in the same season).
+- **Player of the Season:** the best player across both competitions, plus the best of each division and of the Städtepokal (home page between seasons, and in History).
+- **The old Länderliga** (16 states in two divisions, 7 players each) stays in History. A running Länderliga season is finished with the state squads; the switch to the city clubs happens at the next draft. Players keep their Länderliga stats as a separate "Länderliga (old)" row.
 
 - 120 players in one shared pool. Each player belongs to one city team and (for 112 of them) one state team. The 8 not in a state squad play only the Städtepokal.
 - **Cancel a season:** a running season (for example one in an old format) can be cancelled from its page; its matches are deleted and stats recalculated. Finished seasons are never touched.
-- **The draft:** before every new season (from season 2), each team keeps its 2 best performers of last season by Player of the Series points. Everyone else goes into a draft. Each player gets a temporary draft rating: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season (fewer matches count less). The team with the weakest real squad picks first, snake order; every team takes the best player left but makes sure it ends up with 2 batters and 3 bowlers. The draft is watched pick by pick (Next pick, Auto, Skip to end) and saved with the season (Draft tab). Draft ratings only count for the draft: matches always use the normal ratings. The same finished season always gives the same draft. Each season remembers its squads, so old seasons and scorecards stay correct.
+- **The draft:** before every new season, each club keeps its 2 best performers of last season by Player of the Series points (Städteliga and Städtepokal together). Everyone else goes into a draft. Each player gets a temporary draft rating: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season (fewer matches count less). The team with the weakest real squad picks first, snake order; every team takes the best player left but makes sure it ends up with 2 batters and 3 bowlers. The draft is watched pick by pick (Next pick, Auto, Skip to end) and saved with the season (Draft tab). Draft ratings only count for the draft: matches always use the normal ratings. The same finished season always gives the same draft. Each season remembers its squads, so old seasons and scorecards stay correct.
 - **Leaderboards** show each player's team (in that season, or their current team for all-time lists).
 - Retired batters come back in (earliest first) only when everyone else is out or retired, and then bat with no limit.
-- **Openers don't bowl:** in both competitions the two best batters open and never bowl. In the Länderliga the other 5 bowl one over each; in the Städtepokal the other 4 share the 6 overs (max 2 each, never two in a row), and a bowler's second over is bowled tired: −30 bowling rating for that over (keeps the median first innings around 62).
+- **Openers don't bowl:** in both competitions the two best batters open and never bowl. The other 4 share the overs (max 2 each, never two in a row), and a bowler's second over is bowled tired: −30 bowling rating for that over (median first innings: Städteliga about 51, Städtepokal about 62).
 - **Form 🔥 ❄️:** each player's last 5 matches are compared with their own career average: batting by runs per innings (3 runs = 1 point), bowling by (20 × wickets − runs) per over (5 = 1 point). That gives up to ±4 rating points for the next competition match. 🔥 from +2, ❄️ from −2. Nothing permanent.
 - **Last man stands:** in both competitions, when everyone else is out the last batter bats on alone and always keeps the strike. The innings is over when every batter is out (7 wickets in the league, 6 in the cup). Not used in Super Overs or friendly matches.
 - **Toss:** the toss winner decides automatically from the pitch and its squad (green top with 2+ seamers: bowl; dusty turner: bat; flat road: chase; good pitch: bat with the stronger batting, bowl with the stronger attack, otherwise chase). The reason is shown and the match starts after 3 seconds.
