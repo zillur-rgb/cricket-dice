@@ -364,10 +364,10 @@
   function pickDismissal(match, batMode, freeHit) {
     const inn = cur(match);
     const bowler = match.teams[inn.bowl].players[inn.bowler];
-    if (freeHit) return 'run out';
-    const w = { caught: 52, bowled: 18, lbw: 15, 'run out': 6, stumped: bowler.type === 'spin' ? 7 : 0, 'caught behind': bowler.type === 'pace' ? 10 : 3 };
+    if (freeHit) return 'run out';          // a run-out happens only on a free hit
+    const w = { caught: 52, bowled: 18, lbw: 15, stumped: bowler.type === 'spin' ? 7 : 0, 'caught behind': bowler.type === 'pace' ? 10 : 3 };
     if (batMode === 'attack') { w.caught *= 1.35; w.stumped *= 1.5; w.lbw *= 0.7; }
-    if (batMode === 'defend') { w.caught *= 0.7; w.lbw *= 1.3; w.bowled *= 1.2; w['run out'] *= 0.6; }
+    if (batMode === 'defend') { w.caught *= 0.7; w.lbw *= 1.3; w.bowled *= 1.2; }
     return pickWeighted(w);
   }
 

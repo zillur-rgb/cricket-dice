@@ -839,7 +839,7 @@
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. A batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
-        <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out).</li>
+        <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out). Run-outs happen only on a free hit.</li>
       </ul>
       <p><b>Keys:</b> Q / W / E bowling plan · 1 / 2 / 3 shot · Space bowls.</p>
       <div style="margin-top:14px"><button class="primary" id="btn-close-rules">Got it</button></div>
