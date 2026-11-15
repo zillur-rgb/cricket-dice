@@ -333,7 +333,7 @@
     mul('W', Math.exp(SKILL.bW * bq - SKILL.aW * aq));
 
     // Getting set
-    if (bstat.balls < 5) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }
+    if (bstat.balls < 2) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }   // trial: nervous for 2 balls (was 5)
     else if (bstat.balls >= 25) { mul('W', 0.85); mul('4', 1.1); mul('6', 1.1); }
 
     // Phase
