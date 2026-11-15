@@ -829,7 +829,7 @@
       <ul>
         <li><b>Bowling plan</b>: Tight line cuts boundaries and wickets. Attack hunts wickets but leaks runs and more wides.</li>
         <li><b>Skill duel</b>: batter's batting rating vs bowler's bowling rating. Tailenders struggle against strike bowlers.</li>
-        <li><b>Getting set</b>: the first 2 balls are riskier. After 25 balls a batter is set: harder to get out and scores faster.</li>
+        <li><b>Set batter</b>: after 25 balls a batter is set: harder to get out and scores faster.</li>
         <li><b>Phase</b>: the powerplay boosts fours. Death overs boost sixes and wickets.</li>
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
@@ -1536,7 +1536,7 @@
       });
       const tm = pid => side[pid] ? `<span class="r3-tm">${esc(T(side[pid]).short || T(side[pid]).name)}</span>` : '';
       const stage = C.STAGE_LABEL[m.stage] || m.stage;
-      return `<div class="r3">
+      return `<div class="r3" data-kind="${m.comp}">
         <div class="cc-kicker">${esc(m.compName)} · S${m.season} · ${esc(stage)}</div>
         ${m.innings.map(score).join('')}
         <div class="r3-result">${esc(m.result)}</div>
@@ -1684,14 +1684,14 @@
       <div class="panel">
         <div class="inn-title"><h2>Leaderboards</h2><span class="muted" style="font-size:13px">${played} match${played === 1 ? '' : 'es'} played</span></div>
         <div class="lb-tabs" role="tablist">${HOME_BOARDS.map(([k, l]) => `<button class="lb-tab ${state.homeTab === k ? 'active' : ''}" data-hb="${k}" role="tab" aria-selected="${state.homeTab === k}">${l}</button>`).join('')}</div>
-        <div id="home-board">${homeBoardHTML(state.homeTab)}</div>
+        <div id="home-board" data-kind="${state.homeTab === 'recent' ? '' : state.homeTab.split('-')[0]}">${homeBoardHTML(state.homeTab)}</div>
         <div style="margin-top:12px"><button class="secondary" data-go="players">All player stats →</button></div>
       </div>
     </section>`;
     app.querySelectorAll('[data-hb]').forEach(b => b.onclick = () => {
       state.homeTab = b.dataset.hb;
       app.querySelectorAll('[data-hb]').forEach(x => { x.classList.toggle('active', x === b); x.setAttribute('aria-selected', x === b); });
-      const box = document.getElementById('home-board'); box.innerHTML = homeBoardHTML(state.homeTab);
+      const box = document.getElementById('home-board'); box.innerHTML = homeBoardHTML(state.homeTab); box.dataset.kind = state.homeTab === 'recent' ? '' : state.homeTab.split('-')[0];
       bindHomeBoard(box);
     });
     bindHomeBoard(document.getElementById('home-board'));
@@ -2290,6 +2290,7 @@
     const m = state.db.matches.find(x => x.id === id);
     if (!m) return;
     const pm = pmap(), kind = m.comp;
+    modalCard.dataset.kind = kind;
     const inns = m.innings.map(I => {
       const bowlTeam = m.teams.find(t => t !== I.team);
       return `<div class="inn-title"><h2>${chipTeam(kind, I.team)}</h2><span class="num">${I.runs}/${I.wkts} (${E.oversStr(I.balls)} ov)</span></div>
@@ -2359,6 +2360,142 @@
     s.oninput = () => { state.plSearch = s.value; const pos = s.selectionStart; renderPlayers(); const n = document.getElementById('pl-search'); n.focus(); n.setSelectionRange(pos, pos); };
     bindPlayerLinks();
   }
+
+
+  // ---------- Quick look: hover (mouse) or long press (touch) on a player or team ----------
+  // Which competition a name belongs to where it's shown: a marked area (match card, leaderboard),
+  // the live match, or the competition page you're on.
+  function hoverKind(el) {
+    const mk = el.closest('[data-kind]');
+    if (mk && mk.dataset.kind) return mk.dataset.kind;
+    if (state.screen === 'play' && state.ctx) { const c = compById(state.ctx.compId); if (c) return c.kind; }
+    if (state.screen === 'comp' && state.compKind) return state.compKind;
+    return null;
+  }
+  const kindName = k => C.COMPS[k] ? C.COMPS[k].name : 'all competitions';
+
+  function playerQuickHTML(pid, kind) {
+    const db = state.db, p = pmap()[pid];
+    if (!p) return '';
+    const mine = db.matches.filter(m => (!kind || m.comp === kind) && (kind || m.comp !== 'league') && m.innings.some(I => I.batting.some(b => b.pid === pid) || I.dnb.includes(pid) || I.bowling.some(b => b.pid === pid)));
+    const last = mine.slice(-3).reverse();
+    const rows = last.map(m => {
+      let bat = '', bowl = '', side = null;
+      m.innings.forEach((I, i) => {
+        const b = I.batting.find(x => x.pid === pid); if (b) bat = `${b.r}${b.out ? '' : '*'} (${b.b})`;
+        if (b || I.dnb.includes(pid)) side = I.team;
+        const w = I.bowling.find(x => x.pid === pid); if (w) { bowl = `${w.w}/${w.r}`; if (!side && m.innings.length > 1) side = m.innings[1 - i].team; }
+      });
+      const opp = m.teams.find(t => t !== side) || m.teams[1];
+      const res = m.winner ? (m.winner === side ? '<span class="qk-res w">W</span>' : '<span class="qk-res l">L</span>') : '<span class="qk-res t">T</span>';
+      return `<li>${res}<span class="qk-vs">v ${esc(C.teamOf(db, m.comp, opp).short)}${kind ? '' : ` <small>${m.comp === 'cup' ? 'Pokal' : 'Liga'}</small>`}</span><span class="num">${bat || 'dnb'}</span><span class="num">${bowl || '–'}</span>${m.motm === pid ? '<span class="qk-pom">PoM</span>' : ''}</li>`;
+    }).join('');
+    const club = C.teamOf(db, 'cup', p.city);
+    return `<div class="qk-h"><b>${esc(p.name)}</b>${formIcon(quickForm(pid))}<span class="muted">${club ? esc(club.name) : ''} · BAT ${p.bat} · BOWL ${p.bowl}</span></div>
+      <div class="qk-sub">Last ${last.length || 3} ${kind ? kindName(kind) + ' ' : ''}match${last.length === 1 ? '' : 'es'}${kind ? '' : ' (Liga + Pokal)'}</div>
+      ${rows ? `<ul class="qk-list"><li class="qk-head"><span></span><span>v</span><span>Bat</span><span>Bowl</span></li>${rows}</ul>` : `<div class="muted qk-none">No ${kindName(kind)} matches yet.</div>`}`;
+  }
+  // form icon for a player id (same rule as in matches)
+  const quickForm = pid => { try { return C.formOf(state.db, pid); } catch (e) { return null; } };
+
+  // the season a team chip belongs to: the one on screen, else the running or last one
+  function teamComp(kind) {
+    return C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
+  }
+  function teamStanding(comp, id) {
+    const db = state.db, ord = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+    let label = '', rows = null;
+    if (comp.divisions) {
+      const d = +Object.keys(comp.divisions).find(k => comp.divisions[k].includes(id));
+      if (d) { rows = C.divTable(db, comp, d); label = `${d}. Liga`; }
+    } else if (comp.kind === 'league') { rows = C.leagueTable(db, comp); label = 'Table'; }
+    else if (comp.kind === 'cup') {
+      const g2 = comp.groups2 && Object.keys(comp.groups2).find(g => comp.groups2[g].includes(id));
+      const g1 = comp.groups && Object.keys(comp.groups).find(g => comp.groups[g].includes(id));
+      if (g2) { rows = C.round2Table(db, comp, g2); label = `Second round · Group ${g2}`; }
+      else if (g1) { rows = C.groupTable(db, comp, g1); label = `Group ${g1}`; }
+    }
+    if (!rows) return '';
+    const i = rows.findIndex(r => r.id === id), r = rows[i];
+    if (!r) return '';
+    return `${label} · <b>${ord(i + 1)}</b> of ${rows.length} · ${r.pts} pts · ${r.w}W ${r.l}L · NRR ${r.p ? (r.nrr >= 0 ? '+' : '') + r.nrr.toFixed(2) : '–'}`;
+  }
+  function teamQuickHTML(kind, id) {
+    const db = state.db, comp = teamComp(kind);
+    const t = C.teamOf(db, kind, id);
+    if (!t) return '';
+    if (!comp) return `<div class="qk-h"><b>${esc(t.name)}</b></div><div class="muted qk-none">No ${kindName(kind)} season yet.</div>`;
+    const squad = C.squadsFor(db, comp).find(x => x.id === id);
+    const st = C.competitionStats(db, comp.id), pm = pmap();
+    const mine = squad ? squad.players.filter(pid => st[pid]) : [];
+    const bats = mine.filter(pid => st[pid].runs > 0).sort((a, b) => st[b].runs - st[a].runs || st[a].balls - st[b].balls).slice(0, 2);
+    const bowls = mine.filter(pid => st[pid].wkts > 0).sort((a, b) => st[b].wkts - st[a].wkts || st[a].runsConceded - st[b].runsConceded).slice(0, 2);
+    const line = teamSeasonLine(comp, kind, id);
+    const sr = s => s.balls ? Math.round(s.runs * 100 / s.balls) : 0;
+    const ec = s => s.ballsBowled ? (s.runsConceded * 6 / s.ballsBowled).toFixed(1) : '–';
+    return `<div class="qk-h"><span class="dot" style="background:${t.color}"></span><b>${esc(t.name)}</b><span class="muted">${esc(comp.name)} · S${comp.season}</span></div>
+      <div class="qk-standing">${teamStanding(comp, id) || ''}${line && line.line ? `<div class="qk-line">${esc(line.line)}</div>` : ''}</div>
+      <div class="qk-cols">
+        <div><div class="qk-sub">Top batters</div>${bats.length ? bats.map(pid => `<div class="qk-p"><span>${esc(pm[pid].name)}</span><span class="num">${st[pid].runs} <small>(SR ${sr(st[pid])})</small></span></div>`).join('') : '<div class="muted">–</div>'}</div>
+        <div><div class="qk-sub">Top bowlers</div>${bowls.length ? bowls.map(pid => `<div class="qk-p"><span>${esc(pm[pid].name)}</span><span class="num">${st[pid].wkts} <small>(Econ ${ec(st[pid])})</small></span></div>`).join('') : '<div class="muted">–</div>'}</div>
+      </div>`;
+  }
+
+  const quick = document.createElement('div');
+  quick.id = 'quicklook'; quick.hidden = true; quick.setAttribute('role', 'tooltip');
+  document.body.appendChild(quick);
+  let qTimer = null, qEl = null, qSuppressClick = false;
+  function showQuick(el) {
+    if (!state.db) return;
+    let html = '';
+    try {
+      if (el.dataset.player) html = playerQuickHTML(el.dataset.player, hoverKind(el));
+      else if (el.dataset.team) { const [k, id] = el.dataset.team.split(':'); html = teamQuickHTML(k, id); }
+    } catch (err) { console.warn('quick look', err); html = ''; }
+    if (!html) return;
+    quick.innerHTML = html; quick.hidden = false; qEl = el;
+    const r = el.getBoundingClientRect(), w = Math.min(320, window.innerWidth - 16);
+    quick.style.width = w + 'px';
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    const below = r.bottom + 8, h = quick.offsetHeight;
+    const top = below + h > window.innerHeight - 8 && r.top - h - 8 > 8 ? r.top - h - 8 : below;
+    quick.style.left = left + 'px'; quick.style.top = top + 'px';
+  }
+  function hideQuick() { clearTimeout(qTimer); qTimer = null; quick.hidden = true; qEl = null; }
+  const qTarget = e => e.target && e.target.closest ? e.target.closest('[data-player], [data-team]') : null;
+  // mouse: hover for a moment
+  document.addEventListener('pointerover', e => {
+    if (e.pointerType !== 'mouse') return;
+    const el = qTarget(e);
+    if (!el) return;
+    if (el === qEl) return;
+    clearTimeout(qTimer);
+    qTimer = setTimeout(() => showQuick(el), 350);
+  });
+  document.addEventListener('pointerout', e => {
+    if (e.pointerType !== 'mouse') return;
+    const el = qTarget(e);
+    if (el && (!e.relatedTarget || !el.contains(e.relatedTarget))) hideQuick();
+  });
+  // touch: long press shows it; the tap that ends the press doesn't open the full card
+  let tStart = null;
+  document.addEventListener('touchstart', e => {
+    const el = qTarget(e);
+    hideQuick();
+    if (!el) return;
+    const t = e.touches[0]; tStart = { x: t.clientX, y: t.clientY };
+    qTimer = setTimeout(() => { showQuick(el); qSuppressClick = true; }, 450);
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!tStart || !qTimer) return;
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - tStart.x) > 10 || Math.abs(t.clientY - tStart.y) > 10) { clearTimeout(qTimer); qTimer = null; }
+  }, { passive: true });
+  document.addEventListener('touchend', () => { if (!qSuppressClick) { clearTimeout(qTimer); qTimer = null; } tStart = null; }, { passive: true });
+  document.addEventListener('click', e => { if (qSuppressClick) { qSuppressClick = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', e => { if (qTarget(e) && !quick.hidden) e.preventDefault(); });
+  window.addEventListener('scroll', hideQuick, { passive: true });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQuick(); });
 
   function bindPlayerLinks(rootEl) {
     (rootEl || app).querySelectorAll('[data-player]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.player); });
@@ -2474,6 +2611,7 @@
 
   function openTeam(kind, id) {
     const db = state.db, pm = pmap();
+    modalCard.dataset.kind = kind === 'league' ? 'league' : '';
     // a city club plays both the Städteliga and the Städtepokal: one card for both
     const isClub = kind === 'liga' || (kind === 'cup' && db.competitions.some(c => c.kind === 'liga'));
     if (kind === 'liga') kind = 'cup';
@@ -2552,6 +2690,7 @@
 
   function openPlayer(pid, opts) {
     const db = state.db, p = pmap()[pid];
+    modalCard.dataset.kind = '';
     // stats saved by an older version may miss a competition: fill in empty ones
     const st0 = db.stats[pid] || {};
     const st = { all: C.blankStats(), league: C.blankStats(), liga: C.blankStats(), cup: C.blankStats(), ...st0 };
@@ -2605,7 +2744,7 @@
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Ov</th><th>M</th><th>R</th><th>W</th><th>Best</th><th>Avg</th><th>Econ</th><th>Dots</th></tr></thead><tbody>
         ${brow('Career', st.all, 'all')}${showLiga ? brow('Städteliga', st.liga, 'liga') : ''}${brow('Städtepokal', st.cup, 'cup')}${hasOld ? brow(oldLbl, st.league, 'league') : ''}</tbody></table></div>
       <h3 style="margin-top:14px">Recent matches</h3>
-      <div class="ps-recents">${showLiga ? recentHTML('liga', 'Städteliga') : ''}${recentHTML('cup', 'Städtepokal')}${hasOld && (!showLiga || st.liga.mat < 5) ? recentHTML('league', oldLbl) : ''}</div>
+      <div class="ps-recents">${showLiga ? recentHTML('liga', 'Städteliga') : ''}${recentHTML('cup', 'Städtepokal')}${!showLiga ? recentHTML('league', oldLbl) : ''}</div>
       <div style="margin-top:14px"><button class="primary" id="btn-close-modal">${state.modalBack ? '← Back' : 'Close'}</button></div>`;
     modal.hidden = false;
     document.getElementById('btn-close-modal').onclick = () => { if (state.modalBack) { const back = state.modalBack; state.modalBack = null; back(); } else modal.hidden = true; };
