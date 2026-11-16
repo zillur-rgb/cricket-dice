@@ -829,7 +829,7 @@
       <ul>
         <li><b>Bowling plan</b>: Tight line cuts boundaries and wickets. Attack hunts wickets but leaks runs and more wides.</li>
         <li><b>Skill duel</b>: batter's batting rating vs bowler's bowling rating. Tailenders struggle against strike bowlers.</li>
-        <li><b>Set batter</b>: after 25 balls a batter is set: harder to get out and scores faster.</li>
+        <li><b>Getting set</b>: the first 2 balls are riskier. After 25 balls a batter is set: harder to get out and scores faster.</li>
         <li><b>Phase</b>: the powerplay boosts fours. Death overs boost sixes and wickets.</li>
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
