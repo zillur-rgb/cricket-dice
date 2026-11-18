@@ -321,6 +321,49 @@
     return out.filter(id => teamsOf(db, 'cup').some(t => t.id === id));
   }
 
+  // ---------------- Club ranking (Elo) ----------------
+  // Every city club starts at 1000 points. After each Städteliga or Städtepokal match the winner takes
+  // points from the loser: more for beating a stronger club, a little more for a big win, and more in
+  // the knockouts (semifinal, final). Points carry over from season to season.
+  // The arrow compares each club's place with its place at the start of the current round.
+  const RANK_START = 1000;
+  const RANK_K = { SF: 36, F: 40 };      // everything else (league, group, second round): 30
+  function matchMargin(m) {
+    const main = m.innings.filter(I => !I.superOver);
+    if (!m.winner || main.length < 2 || (m.superOvers && m.superOvers.length)) return 1;
+    const [a, b] = main;
+    if (a.team === m.winner) return 1 + Math.min(0.5, Math.max(0, a.runs - b.runs) / 30);     // won defending
+    const left = Math.max(0, (m.overs || 5) * 6 - b.balls);
+    return 1 + Math.min(0.5, left / 24);                                                       // won chasing
+  }
+  function clubRanking(db) {
+    const clubs = teamsOf(db, 'cup').map(t => t.id);
+    const pts = Object.fromEntries(clubs.map(id => [id, RANK_START]));
+    const played = Object.fromEntries(clubs.map(id => [id, 0]));
+    const order = () => clubs.slice().sort((a, b) => pts[b] - pts[a] || played[b] - played[a] || a.localeCompare(b));
+    const ms = db.matches.filter(m => (m.comp === 'cup' || m.comp === 'liga') && !m.friendly)
+      .slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    let blockKey = null, startOrder = order(), last = null;
+    for (const m of ms) {
+      const key = `${m.compId}|${m.stage}|${m.round || ''}`;
+      if (key !== blockKey) { blockKey = key; startOrder = order(); }
+      const [x, y] = m.teams;
+      if (!(x in pts) || !(y in pts)) continue;          // a club that left the Städtepokal
+      const ex = 1 / (1 + Math.pow(10, (pts[y] - pts[x]) / 400));
+      const sx = m.winner === x ? 1 : m.winner === y ? 0 : 0.5;
+      const d = (RANK_K[m.stage] || 30) * (sx === 0.5 ? 1 : matchMargin(m)) * (sx - ex);
+      pts[x] += d; pts[y] -= d; played[x]++; played[y]++;
+      last = m;
+    }
+    const now = order();
+    const rows = now.map((id, i) => {
+      const was = startOrder.indexOf(id) + 1;
+      return { id, rank: i + 1, pts: Math.round(pts[id]), played: played[id], was, change: was - (i + 1) };
+    });
+    const round = last ? { comp: last.compName, season: last.season, stage: last.stage, round: last.round } : null;
+    return { rows, byId: Object.fromEntries(rows.map(r => [r.id, r])), round };
+  }
+
   // club ranking used when there is no Städteliga yet: last Städtepokal, else squad strength
   function clubOrder(db) {
     const lastCup = db.competitions.filter(c => c.kind === 'cup' && c.status === 'complete' && c.format === 'v2').pop();
@@ -1328,7 +1371,7 @@
     GIVEN_NAMES, WRESTLERS, STATES, CITIES, COMPS, STAGE_LABEL,
     buildWorld, newDB, playerMap, teamOf, activeComp, lastComp, engineTeam,
     startCompetition, leagueTable, divTable, divisionsFor, divMoves, upgradeLeaguePlayoffs, cancelSeason, groupTable, round2Table, recordMatch, computeStats, competitionStats, migrate, refreshEmptyOldSeason, squadsFor, RETIRED_CITIES, planTransfers, applyTransfers, draftRatings, renamePlayer,
-    teamsOf, clubEra, leagueKind, ligaClubs, ligaDivisions, ligaMoves, cupRanking, clubOrder, startClubSeason, clubSeasonComps, combinedRace, seasonDone, LIGA_CLUBS,
+    teamsOf, clubEra, leagueKind, ligaClubs, ligaDivisions, ligaMoves, cupRanking, clubRanking, clubOrder, startClubSeason, clubSeasonComps, combinedRace, seasonDone, LIGA_CLUBS,
     buildMatch, simulateFixture, pendingFixtures, fmtStats, blankStats: blank,
     impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf, raceFor, seasonRecords,
   };

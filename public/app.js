@@ -835,6 +835,7 @@
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
         <li><b>City clubs</b>: 20 clubs of 6 players. 18 play the <b>Städteliga</b> (three divisions of 6; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and all 20 play the <b>Städtepokal</b>, with the same squad. Both competitions are one season: the draft opens when both are finished.</li>
+        <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
@@ -1681,6 +1682,7 @@
       <div class="comp-grid">${compCardHTML(C.leagueKind(state.db))}${compCardHTML('cup')}</div>
       ${nextUpHTML()}
       ${seasonAwardsHTML()}
+      ${rankingPanelHTML()}
       <div class="panel">
         <div class="inn-title"><h2>Leaderboards</h2><span class="muted" style="font-size:13px">${played} match${played === 1 ? '' : 'es'} played</span></div>
         <div class="lb-tabs" role="tablist">${HOME_BOARDS.map(([k, l]) => `<button class="lb-tab ${state.homeTab === k ? 'active' : ''}" data-hb="${k}" role="tab" aria-selected="${state.homeTab === k}">${l}</button>`).join('')}</div>
@@ -1695,6 +1697,7 @@
       bindHomeBoard(box);
     });
     bindHomeBoard(document.getElementById('home-board'));
+    bindRankPanel();
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
     const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
@@ -2402,6 +2405,44 @@
   function teamComp(kind) {
     return C.activeComp(state.db, kind) || C.lastComp(state.db, kind);
   }
+  // ---------- Club ranking ----------
+  let rankCache = null;
+  function rankInfo() {
+    const db = state.db, key = db.matches.length + ':' + (db.matches.length ? db.matches[db.matches.length - 1].id : '');
+    if (!rankCache || rankCache.db !== db || rankCache.key !== key) rankCache = { db, key, r: C.clubRanking(db) };
+    return rankCache.r;
+  }
+  const isClubKind = kind => kind === 'cup' || kind === 'liga';
+  function rankMove(r) {
+    if (!r.change) return '<span class="rk-mv same" title="No change this round">–</span>';
+    return r.change > 0 ? `<span class="rk-mv up" title="Up ${r.change} this round">▲${r.change}</span>` : `<span class="rk-mv down" title="Down ${-r.change} this round">▼${-r.change}</span>`;
+  }
+  function rankChip(id) {
+    const r = rankInfo().byId[id];
+    return r ? `<span class="rk" title="Club ranking: ${r.pts} pts">#${r.rank}${rankMove(r)}</span>` : '';
+  }
+  function rankingRowsHTML(rows) {
+    return rows.map(r => `<li><span class="rk-pos num">${r.rank}</span>${rankMove(r)}
+      <span class="tchip rk-club" data-team="cup:${r.id}" role="button" tabindex="0"><span class="dot" style="background:${tcolor('cup', r.id)}"></span>${esc(tname('cup', r.id))}</span>
+      <span class="num rk-pts">${r.pts}<small> pts</small></span><span class="muted num rk-pl">${r.played}</span></li>`).join('');
+  }
+  function rankingPanelHTML() {
+    const R = rankInfo();
+    if (!R.rows.length) return '';
+    const open = !!state.rankOpen, rows = open ? R.rows : R.rows.slice(0, 5);
+    const since = R.round ? `Arrows: change since the start of the current round (${esc(R.round.comp)} S${R.round.season} · ${esc(C.STAGE_LABEL[R.round.stage] || R.round.stage)}${R.round.round ? ' round ' + R.round.round : ''}).` : 'No matches played yet.';
+    return `<div class="panel" id="rank-panel">
+      <div class="inn-title"><h2>Club ranking</h2><span class="muted" style="font-size:13px">Städteliga + Städtepokal</span></div>
+      <ol class="rank-list"><li class="rk-head"><span>#</span><span></span><span>Club</span><span>Points</span><span>Pl</span></li>${rankingRowsHTML(rows)}</ol>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">${since} Every club started at 1000. A win takes points from the loser: more against a stronger club, for a big win, and in the semifinals and finals.</p>
+      <div style="margin-top:10px"><button class="secondary" id="btn-rank-all">${open ? 'Show top 5' : `All ${R.rows.length} clubs →`}</button></div>
+    </div>`;
+  }
+  function bindRankPanel() {
+    const b = document.getElementById('btn-rank-all');
+    if (b) b.onclick = () => { state.rankOpen = !state.rankOpen; document.getElementById('rank-panel').outerHTML = rankingPanelHTML(); bindRankPanel(); };
+  }
+
   function teamStanding(comp, id) {
     const db = state.db, ord = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
     let label = '', rows = null;
@@ -2433,7 +2474,7 @@
     const line = teamSeasonLine(comp, kind, id);
     const sr = s => s.balls ? Math.round(s.runs * 100 / s.balls) : 0;
     const ec = s => s.ballsBowled ? (s.runsConceded * 6 / s.ballsBowled).toFixed(1) : '–';
-    return `<div class="qk-h"><span class="dot" style="background:${t.color}"></span><b>${esc(t.name)}</b><span class="muted">${esc(comp.name)} · S${comp.season}</span></div>
+    return `<div class="qk-h"><span class="dot" style="background:${t.color}"></span><b>${esc(t.name)}</b>${isClubKind(kind) ? rankChip(id) : ''}<span class="muted">${esc(comp.name)} · S${comp.season}</span></div>
       <div class="qk-standing">${teamStanding(comp, id) || ''}${line && line.line ? `<div class="qk-line">${esc(line.line)}</div>` : ''}</div>
       <div class="qk-cols">
         <div><div class="qk-sub">Top batters</div>${bats.length ? bats.map(pid => `<div class="qk-p"><span>${esc(pm[pid].name)}</span><span class="num">${st[pid].runs} <small>(SR ${sr(st[pid])})</small></span></div>`).join('') : '<div class="muted">–</div>'}</div>
@@ -2609,6 +2650,38 @@
     return chips.length ? `<div class="honours">${chips.join('')}</div>` : '<p class="muted" style="font-size:13px">No honours yet.</p>';
   }
 
+  // The club's last 5 seasons: Städteliga place and how far it got in the Städtepokal
+  function lastSeasonsHTML(id) {
+    const db = state.db;
+    const cups = db.competitions.filter(c => c.kind === 'cup' && c.format === 'v2').sort((a, b) => (a.startedAt || '').localeCompare(b.startedAt || '')).slice(-5).reverse();
+    if (!cups.length) return '';
+    const tag = (c) => `<span class="l5-s">S${c.season}</span>`;
+    const ligaCell = (cup) => {
+      const l = cup.clubSeason && db.competitions.find(c => c.kind === 'liga' && c.clubSeason === cup.clubSeason);
+      if (!l) return '<span class="muted">–</span>';
+      const h = teamSeasonLine(l, 'liga', id);
+      if (!h) return `${tag(l)}<span class="muted">Not in the Städteliga</span>`;
+      const ic = h.cls === 'champ' ? '🏆 ' : h.cls === 'champ2' ? '🥇 ' : '';
+      const mv = / · (promoted|relegated)$/.exec(h.table);
+      const tbl = h.table.replace(/ · (promoted|relegated)$/, '');
+      return `${tag(l)}${ic}${esc(tbl)}${h.line ? ` <span class="muted">· ${esc(h.line)}</span>` : ''}${mv ? (mv[1] === 'promoted' ? ' <span class="l5-up">⬆ promoted</span>' : ' <span class="l5-down">⬇ relegated</span>') : ''}${h.running ? ' <span class="l5-now">now</span>' : ''}`;
+    };
+    const cupCell = (c) => {
+      const h = teamSeasonLine(c, 'cup', id);
+      if (!h) return `${tag(c)}<span class="muted">–</span>`;
+      let stage = h.line || (/^Second round/.test(h.table) ? 'Second round' : 'Group stage');
+      if (h.line === 'Champion') stage = '🏆 Winner'; else if (h.line === 'Runner-up') stage = 'Final';
+      else if (/semifinal/.test(h.line)) stage = 'Semifinal';
+      let pos = '';
+      if (c.status === 'complete') { const i = C.cupRanking(db, c).indexOf(id); if (i >= 0) pos = ` <span class="muted">· ${ordinal(i + 1)} of ${C.cupRanking(db, c).length}</span>`; }
+      else pos = ` <span class="muted">· ${esc(h.table)}</span>`;
+      return `${tag(c)}${stage}${pos}${h.running ? ' <span class="l5-now">now</span>' : ''}`;
+    };
+    return `<div class="l5"><div class="l5-head"><span class="ps-liga"><span class="ps-dot"></span>Städteliga</span><span class="ps-cup"><span class="ps-dot"></span>Städtepokal</span></div>
+      ${cups.map(c => `<div class="l5-row"><div>${ligaCell(c)}</div><div>${cupCell(c)}</div></div>`).join('')}
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Last ${cups.length} season${cups.length === 1 ? '' : 's'}, newest first. Before the city clubs there was no Städteliga.</p></div>`;
+  }
+
   function openTeam(kind, id) {
     const db = state.db, pm = pmap();
     modalCard.dataset.kind = kind === 'league' ? 'league' : '';
@@ -2656,9 +2729,10 @@
     const squad = (curComp ? C.squadsFor(db, curComp) : C.teamsOf(db, kind)).find(x => x.id === id);
     const cupOnly = isClub && db.clubs && db.clubs.cupOnly && db.clubs.cupOnly.includes(id);
     modalCard.innerHTML = `<div class="cc-kicker">${isClub ? `City club · ${cupOnly ? 'Städtepokal only' : 'Städteliga + Städtepokal'}` : `${esc(C.COMPS[kind].name)}${titles ? ` · ${titles} title${titles === 1 ? '' : 's'}` : ''}`}</div>
-      <h2 class="tm-title"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</h2>
+      <h2 class="tm-title"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${kind === 'cup' ? rankChip(id) : ''}</h2>
+      ${kind === 'cup' && rankInfo().byId[id] ? `<div class="muted tm-rank">Club ranking: <b>#${rankInfo().byId[id].rank}</b> of ${rankInfo().rows.length} · ${rankInfo().byId[id].pts} pts</div>` : ''}
       ${form ? `<div class="tm-form">Form ${form}</div>` : ''}
-      ${isClub ? `<h3 class="tm-h">Honours</h3>${honoursHTML(clubHonours(id))}` : ''}
+      ${isClub ? `<h3 class="tm-h">Honours</h3>${honoursHTML(clubHonours(id))}${lastSeasonsHTML(id)}` : ''}
       <h3 class="tm-h">Last 5 matches</h3>
       ${lastRows ? `<ul class="tm-list">${lastRows}</ul>` : '<p class="muted">No matches played yet.</p>'}
       <h3 class="tm-h">Season history</h3>

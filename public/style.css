@@ -780,3 +780,25 @@ h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
 #quicklook .qk-none { margin-top: 4px; }
 .plink, .tchip, [data-team] { -webkit-touch-callout: none; }
 .plink, .tchip { -webkit-user-select: none; user-select: none; }
+
+/* ---------- Club ranking ---------- */
+.rk { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 999px; padding: 1px 7px; margin-left: 4px; white-space: nowrap; }
+.tm-title .rk { font-size: 14px; }
+.rk-mv { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.rk-mv.up { color: #8bd16a; } .rk-mv.down { color: var(--red); } .rk-mv.same { color: var(--muted); }
+.tm-rank { font-size: 13px; margin: -2px 0 6px; }
+.rank-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.rank-list li { display: grid; grid-template-columns: 2em 2.6em minmax(0, 1fr) auto 2em; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.rank-list li.rk-head { background: none; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; padding-block: 0; }
+.rank-list .rk-pos { font-weight: 700; text-align: right; }
+.rank-list .rk-club { min-width: 0; justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-list .rk-pts, .rank-list .rk-pl { text-align: right; }
+.rank-list .rk-pts small { color: var(--muted); }
+.l5 { margin-top: 10px; display: grid; gap: 4px; }
+.l5-head, .l5-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.l5-head { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--ps, var(--muted)); }
+.l5-head > span { color: var(--ps); display: inline-flex; align-items: center; gap: 5px; }
+.l5-row { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.l5-s { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: 6px; }
+.l5-up { color: #8bd16a; white-space: nowrap; } .l5-down { color: var(--red); white-space: nowrap; }
+.l5-now { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; padding: 0 5px; }
