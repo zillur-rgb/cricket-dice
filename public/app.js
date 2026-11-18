@@ -2084,13 +2084,13 @@
     if (f.stage === 'league' && comp.divisions) return { type: 'div', d: f.div };
     return null;
   }
-  const zoneWord = scope => scope.type === 'div' ? (scope.d === 1 ? 'in the semifinals' : 'promoted') : 'through';
+  const zoneWord = (scope, comp) => scope.type === 'div' ? (scope.d === 1 || (comp && comp.kind === 'liga') ? 'in the semifinals' : 'promoted') : 'through';
   const namesJoin = arr => arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1];
 
   // Plain words: what a team needs (no percentages)
   function stakeNote(comp, scope, r, id) {
-    const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope);
-    if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d >= 2 ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
+    const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope, comp);
+    if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d >= 2 && kind !== 'liga' ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
     if (t.status === 'out') return 'Out';
     const nm = x => tname(kind, x);
     const opp = namesJoin(t.left.map(nm));

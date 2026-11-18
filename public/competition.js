@@ -904,7 +904,7 @@
     else if (scope.type === 'r2') { rows = round2Table(db, comp, scope.g); remaining = comp.fixtures.filter(f => f.stage === 'R2' && f.group === scope.g && !f.result); top = 2; }
     else {
       rows = divTable(db, comp, scope.d); remaining = comp.fixtures.filter(f => f.stage === 'league' && f.div === scope.d && !f.result);
-      if (comp.kind === 'liga') { top = scope.d === 1 ? 4 : 2; bottom = scope.d === 3 ? 0 : 2; }   // 1. Liga: semifinals; 2./3. Liga: promotion
+      if (comp.kind === 'liga') { top = 4; bottom = 0; }   // Städteliga: every division's race is for the semifinals (promotion / relegation go by the table)
       else { top = scope.d === 1 ? 4 : 2; bottom = scope.d === 1 ? 2 : 0; }
     }
     if (!remaining.length) return null;
