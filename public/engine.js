@@ -332,9 +332,11 @@
     mul('0', Math.exp(SKILL.b0 * bq - SKILL.a0 * aq));
     mul('W', Math.exp(SKILL.bW * bq - SKILL.aW * aq));
 
-    // Getting set: a new batter is nervous for 2 balls; after 25 balls they're set
-    if (bstat.balls < 2) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }
-    else if (bstat.balls >= 25) { mul('W', 0.85); mul('4', 1.1); mul('6', 1.1); }
+    // Getting set: a new batter is nervous for 2 balls; after 25 balls they're set.
+    // Openers (competition matches) are never nervous and are set after 12 balls.
+    const opener = !!batter.noBowl;
+    if (!opener && bstat.balls < 2) { mul('W', 1.35); mul('4', 0.8); mul('6', 0.75); }
+    else if (bstat.balls >= (opener ? 12 : 25)) { mul('W', 0.85); mul('4', 1.1); mul('6', 1.1); }
 
     // Phase
     const phase = phaseOf(match, inn);
