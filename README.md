@@ -44,20 +44,20 @@ Both ask which profile and its PIN. The site address is remembered after the fir
 
 ## Competitions
 
-20 **city clubs**, one squad of 6 each, play both competitions in one season. 18 clubs play the Städteliga, all 20 the Städtepokal (the 2 clubs that finished lowest in the last Städtepokal before the switch play only the cup).
+21 **city clubs**, one squad of 6 each, all play both competitions in one season. Dresden joined as the 21st club (players: Jordynne Grace, Austin Theorie, El Grande Americano, Johnny Gargano, Tatum Paxley, Ivy Nile).
 
 | | Städteliga (league) | Städtepokal (tournament) |
 |---|---|---|
-| Teams | 18 city clubs in three divisions of 6 (1. Liga, 2. Liga, 3. Liga) | 20 city clubs |
+| Teams | 21 city clubs in three divisions of 7 (1. Liga, 2. Liga, 3. Liga) | 21 city clubs |
 | Players per team | 6 (same squad in both) | 6 |
 | Overs | 5 (4 bowlers, max 2 each) | 6 (max 2 per bowler; batters retire not out after 12 balls) |
-| Format | each division plays its own 6 clubs once (45 matches); in each division the top 4 → semifinals → final (1. Liga final = Städteliga champion, 2./3. Liga finals = division champions); by the table, the bottom 2 of the 1. and 2. Liga go down and the top 2 of the 2. and 3. Liga go up (54 matches) | 5 groups of 4 → top 2 → second round, 2 groups of 5 → top 2 → semifinals → final (53 matches) |
+| Format | each division plays its own 7 clubs once (6 matches each, one club rests each round; 63 matches); in each division the top 4 → semifinals → final (1. Liga final = Städteliga champion, 2./3. Liga finals = division champions); by the table, the bottom 2 of the 1. and 2. Liga go down and the top 2 of the 2. and 3. Liga go up (72 matches) | 7 groups of 3 (21 matches) → the 7 group winners, 7 runners-up and the 2 best third-placed clubs, seeded 1–16 → Round of 16 (1 v 16, 2 v 15 …, no rematch from the same group) → quarterfinals → semifinals → final (36 matches) |
 
+- **Changeover to 21 clubs:** the last season with divisions of 6 (18 clubs; 20 in the Städtepokal, in 5 groups of 4 and a second round) is finished as it is. In that season only the bottom club of the 1. Liga goes down and nobody goes down from the 2. Liga; the top 2 of the 2. and 3. Liga go up as usual. The 3. Liga is then filled up with the 2 former cup-only clubs and Dresden. Dresden goes into the draft like every club (keeps its 2 best, the rest are drafted).
 - **One season:** the home page's *Next up* card alternates between the two competitions so they finish together. When both are finished, one draft sets the squads for the next season and both start together.
 - **Club honours:** a club's card shows both competitions, its season history, its honours (Städteliga and division titles, Städtepokal wins, promotions, relegations and **Doubles**: division title + Städtepokal in the same season) and its last 5 seasons: Städteliga division and place, Städtepokal stage reached and final place.
 - **Club ranking:** Elo-style points. Every club starts at 1000; after each Städteliga or Städtepokal match the winner takes points from the loser (K = 30, semifinal 36, final 40; × up to 1.5 for a big win: runs margin / 30 or balls left / 24; more points for beating a stronger club). Points carry over between seasons. Shown on the home page (top 5 / all 20), next to the club name in its card and in the hover / long-press quick look, with ▲/▼ for places moved since the start of the current round.
-- **Win chance:** during a match the scoreboard shows a live win-chance bar. After every ball the engine plays the rest of the match 250 times with the computer's choices and counts who wins. The bar swings to the new value and shows how much it moved.
-- **Over summary:** at the end of every over (on screen and on top of the bowler picker): runs, wickets, the balls of the over, the score, the bowler's figures and how the win chance moved during the over.
+- **Over summary:** at the end of every over (on screen and on top of the bowler picker): runs, wickets, the balls of the over, the score and the bowler's figures.
 - **Season story:** the home page shows a few headlines about the latest round: finals and semifinals, records that fell, the best innings and bowling, the closest finish and the biggest win, unbeaten runs and losing streaks, collapses, players on a hot streak 🔥 or out of touch ❄️, and big movers in the club ranking. Tap a headline for the scorecard, player or club.
 - **Records and trophy cabinet:** the History page lists all-time records (highest/lowest total, highest chase, biggest wins, highest score, fastest thirty and fifty, most sixes in an innings, best bowling, and career runs, wickets, sixes and Player of the Match awards) and a trophy cabinet of every club's titles. A pop-up announces any record that falls. The engine now notes the ball on which a batter reaches 30 and 50; older matches use the balls faced in the whole innings.
 - **Player of the Season:** the best player across both competitions, plus the best of each division and of the Städtepokal (home page between seasons, and in History).
