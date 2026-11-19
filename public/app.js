@@ -867,6 +867,7 @@
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
         <li><b>City clubs</b>: 21 clubs of 6 players (Dresden joined as the 21st). Every club plays both competitions with the same squad: the <b>Städteliga</b> (three divisions of 7, one club rests each round; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and the <b>Städtepokal</b> (7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final). Both competitions are one season: the draft opens when both are finished. Seasons started before Dresden joined keep their old format (18 clubs in divisions of 6, 20 in the cup).</li>
+        <li><b>Award ceremony</b>: after the last match of a season a ceremony opens before the draft. For the 1., 2. and 3. Liga and the Städtepokal: champion, runner-up, player of the competition, best batter (most runs) and best bowler (most wickets). Then promoted and relegated clubs, moments of the season (highest score, best bowling, fastest fifty, closest finish), Golden Bat and Golden Ball (all competitions together), Club of the Season (biggest climb in the club ranking), the Double, the Team of the Season (2 batters, 2 all-rounders, 2 bowlers and a captain) and the Player of the Season. Winners keep a badge on their player card; History has a Hall of Fame and every ceremony can be watched again.</li>
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
@@ -1640,6 +1641,148 @@
     });
   }
 
+  // ======================= SEASON CEREMONY =======================
+  // A stage you click through after the last match of a season: every award revealed one by one.
+  const ceremonyKey = n => `cricket-dice-ceremony:${state.db.createdAt}:${n}`;
+  const ceremonySeen = n => { try { return localStorage.getItem(ceremonyKey(n)) === '1'; } catch (e) { return false; } };
+  const markCeremonySeen = n => { try { localStorage.setItem(ceremonyKey(n), '1'); } catch (e) { /* ignore */ } };
+  function ceremonySlides(A) {
+    const db = state.db, pm = pmap();
+    const club = id => C.teamOf(db, 'cup', id) || { name: id || '–', color: '#888' };
+    const clubTag = id => { const t = club(id); return `<span class="cer-club"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span>`; };
+    const who = pid => pid ? `${esc(pm[pid] ? pm[pid].name : pid)} ${clubTag(A.clubOfPid[pid])}` : '–';
+    const item = (icon, label, name, sub, big) => ({ icon, label, name, sub: sub || '', big: !!big });
+    const ec = r => r.ballsBowled ? (r.rc * 6 / r.ballsBowled).toFixed(1) : '–';
+    const sr = r => r.balls ? Math.round(100 * r.runs / r.balls) : 0;
+    const slides = [];
+    slides.push({ kind: 'intro', title: `Season ${A.n} awards`, sub: `Städteliga S${A.liga.season} · Städtepokal S${A.cup.season}`, items: [] });
+    // promoted and relegated
+    const mv = A.moves, names = ids => (ids || []).map(clubTag).join(' ') || '–';
+    const moves = [];
+    if (mv.up[1] && mv.up[1].length) moves.push(item('⬆️', 'Up to the 1. Liga', names(mv.up[1])));
+    if (mv.up[2] && mv.up[2].length) moves.push(item('⬆️', 'Up to the 2. Liga', names(mv.up[2])));
+    if (mv.down[2] && mv.down[2].length) moves.push(item('⬇️', 'Down to the 2. Liga', names(mv.down[2])));
+    if (mv.down[3] && mv.down[3].length) moves.push(item('⬇️', 'Down to the 3. Liga', names(mv.down[3])));
+    if (moves.length) slides.push({ kind: 'list', title: 'Promoted and relegated', items: moves });
+    // the four competitions, champion last
+    for (const k of ['l3', 'l2', 'cup', 'l1']) {
+      const c = A.comp[k];
+      const title = k === 'l1' ? '1. Liga · the Städteliga title' : k === 'cup' ? 'Städtepokal' : `${c.label}`;
+      slides.push({ kind: 'comp', title, items: [
+        item('🏏', 'Best batter', who(c.bat && c.bat.pid), c.bat ? `${c.bat.runs} runs · SR ${sr(c.bat)} · HS ${c.bat.hs}${c.bat.hsNo ? '*' : ''}` : ''),
+        item('🎯', 'Best bowler', who(c.bowl && c.bowl.pid), c.bowl ? `${c.bowl.wkts} wickets · economy ${ec(c.bowl)} · best ${c.bowl.bestW}/${c.bowl.bestR}` : ''),
+        item('⭐', `Player of the ${c.label}`, who(c.player && c.player.pid), c.player ? `${c.player.runs} runs · ${c.player.wkts} wickets · ${c.player.points} pts` : ''),
+        item('🥈', 'Runner-up', clubTag(c.runnerUp)),
+        item('🏆', k === 'l1' ? 'Städteliga champion' : k === 'cup' ? 'Städtepokal winner' : `${c.label} champion`, clubTag(c.champion), '', true),
+      ] });
+    }
+    // moments of the season
+    const M = A.moments, mom = [];
+    if (M.top) mom.push(item('💥', 'Highest score', who(M.top.pid), `${M.top.val} off ${M.top.sub.replace(' balls', '')} balls${M.top.opp ? ` v ${esc(club(M.top.opp).name)}` : ''}`));
+    if (M.figs) mom.push(item('🎯', 'Best bowling', who(M.figs.pid), `${M.figs.val} in ${M.figs.sub}${M.figs.opp ? ` v ${esc(club(M.figs.opp).name)}` : ''}`));
+    if (M.fast) mom.push(item('⚡', M.fast.kind, who(M.fast.pid), `${M.fast.val} · ${M.fast.sub}`));
+    if (M.close) mom.push(item('😮', 'Closest finish', `${clubTag(M.close.winner)} <span class="muted">v</span> ${clubTag(M.close.loser)}`, `${esc(M.close.txt)} · ${esc(M.close.comp)}${M.close.stage !== 'league' && M.close.stage !== 'group' ? ' ' + esc((C.STAGE_LABEL[M.close.stage] || '').toLowerCase()) : ''}`));
+    if (mom.length) slides.push({ kind: 'list', title: 'Moments of the season', items: mom });
+    // Golden Bat and Golden Ball (all competitions together)
+    const gold = [];
+    if (A.goldenBat) gold.push(item('🏏', 'Golden Bat · most runs', who(A.goldenBat.pid), `${A.goldenBat.runs} runs · SR ${sr(A.goldenBat)}`, true));
+    if (A.goldenBall) gold.push(item('🎯', 'Golden Ball · most wickets', who(A.goldenBall.pid), `${A.goldenBall.wkts} wickets · economy ${ec(A.goldenBall)}`, true));
+    if (gold.length) slides.push({ kind: 'list', title: 'Golden Bat and Golden Ball', items: gold });
+    // Club of the Season, Double
+    const cl = [];
+    if (A.clubOfSeason) cl.push(item('📈', 'Club of the Season', clubTag(A.clubOfSeason.id), A.clubOfSeason.climb > 0 ? `climbed from #${A.clubOfSeason.from} to #${A.clubOfSeason.to} in the club ranking (+${A.clubOfSeason.gain} pts)` : `#${A.clubOfSeason.to} in the club ranking (+${A.clubOfSeason.gain} pts)`, true));
+    for (const d of A.doubles) cl.push(item('🏆🏆', 'The Double', clubTag(d.id), `${d.div}. Liga title and the Städtepokal in the same season`, true));
+    if (cl.length) slides.push({ kind: 'list', title: A.doubles.length ? 'Club of the Season · and a Double!' : 'Club of the Season', items: cl });
+    // Team of the Season
+    const roleName = { bat: 'Batter', ar: 'All-rounder', bowl: 'Bowler' };
+    slides.push({ kind: 'team', title: 'Team of the Season', items: A.team.players.map(x => item(x.pid === A.team.captain ? '©️' : '🧢', `${roleName[pm[x.pid].role]}${x.pid === A.team.captain ? ' · captain' : ''}`, who(x.pid), `${x.runs} runs · ${x.wkts} wickets · ${x.points} pts`)) });
+    // the finale
+    const P = A.playerOfSeason;
+    slides.push({ kind: 'finale', title: 'Player of the Season', items: P ? [item('👑', `Player of the Season ${A.n}`, who(P.pid), `${P.runs} runs · ${P.wkts} wickets · ${P.mat} matches · ${P.points} pts`, true)] : [] });
+    slides.push({ kind: 'end', title: 'That\'s the season!', items: [] });
+    return slides;
+  }
+  function confetti(root, n) {
+    const box = document.createElement('div'); box.className = 'confetti';
+    const colors = ['#f2c14e', '#e86a5c', '#5cc8e8', '#8bd16a', '#f5f1e3', '#c77ce8'];
+    for (let i = 0; i < (n || 60); i++) {
+      const s = document.createElement('i');
+      s.style.left = Math.random() * 100 + '%';
+      s.style.background = colors[i % colors.length];
+      s.style.animationDelay = (Math.random() * 0.5) + 's';
+      s.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+      s.style.transform = `rotate(${Math.random() * 360}deg)`;
+      box.appendChild(s);
+    }
+    root.appendChild(box);
+    setTimeout(() => box.remove(), 3500);
+  }
+  function openCeremony(n, opts) {
+    const A = C.seasonCeremony(state.db, n);
+    if (!A) return;
+    const slides = ceremonySlides(A);
+    let si = 0, shown = 0;
+    let el = document.getElementById('ceremony');
+    if (!el) { el = document.createElement('div'); el.id = 'ceremony'; document.body.appendChild(el); }
+    el.hidden = false;
+    document.body.classList.add('no-scroll');
+    const draftNext = opts && opts.draft && C.seasonDone(state.db);
+    const close = () => { el.hidden = true; el.innerHTML = ''; document.body.classList.remove('no-scroll'); document.removeEventListener('keydown', onKey); markCeremonySeen(n); render(); };
+    const draw = () => {
+      const S = slides[si];
+      const itemsHTML = S.items.map((it, i) => i < shown
+        ? `<li class="cer-item ${it.big ? 'big' : ''} on"><span class="cer-ic">${it.icon}</span><div><div class="cer-lbl">${esc(it.label)}</div><div class="cer-name">${it.name}</div>${it.sub ? `<div class="cer-sub">${it.sub}</div>` : ''}</div></li>`
+        : i === shown ? `<li class="cer-item wait"><span class="cer-ic">❔</span><div><div class="cer-lbl">${esc(it.label)}</div><div class="cer-name muted">And the ${S.kind === 'team' ? 'pick' : 'winner'} is…</div></div></li>` : '').join('');
+      const allShown = shown >= S.items.length;
+      const last = si === slides.length - 1;
+      const body = S.kind === 'intro'
+        ? `<div class="cer-intro"><div class="cer-trophy">🏆</div><h1>${esc(S.title)}</h1><p>${esc(S.sub)}</p><p class="muted">Every award, one by one: the divisions, the Städtepokal, the moments of the season, the Team of the Season, and the Player of the Season.</p></div>`
+        : S.kind === 'end'
+          ? `<div class="cer-intro"><div class="cer-trophy">🎉</div><h1>${esc(S.title)}</h1><p class="muted">Every award is kept in History (Hall of Fame) and on the players' cards.</p></div>`
+          : `<div class="cer-head"><div class="cc-kicker">Season ${A.n} awards · ${si} of ${slides.length - 2}</div><h1>${esc(S.title)}</h1></div><ul class="cer-list ${S.kind}">${itemsHTML}</ul>`;
+      el.innerHTML = `<div class="cer-stage">
+        <button class="cer-x" id="cer-x" aria-label="Close">✕</button>
+        ${body}
+        <div class="cer-btns">
+          ${last ? '' : '<button class="secondary" id="cer-skip">Show all</button>'}
+          ${last ? (draftNext ? '<button class="secondary" id="cer-close">Close</button><button class="primary" id="cer-draft">Continue to the draft</button>' : '<button class="primary" id="cer-close">Close</button>')
+            : `<button class="primary" id="cer-next">${S.kind === 'intro' ? 'Start the ceremony' : allShown ? 'Next ▶' : 'Reveal'}</button>`}
+        </div>
+      </div>`;
+      const q = id => el.querySelector('#' + id);
+      q('cer-x').onclick = close;
+      if (q('cer-close')) q('cer-close').onclick = close;
+      if (q('cer-draft')) q('cer-draft').onclick = () => { close(); openTransfers('cup'); };
+      if (q('cer-skip')) q('cer-skip').onclick = () => { si = slides.length - 1; shown = 0; draw(); };
+      if (q('cer-next')) q('cer-next').onclick = next;
+    };
+    const next = () => {
+      const S = slides[si];
+      if (shown < S.items.length) {
+        shown++;
+        draw();
+        const it = S.items[shown - 1];
+        if (it.big) confetti(el.querySelector('.cer-stage'), S.kind === 'finale' ? 140 : 60);
+        return;
+      }
+      if (si < slides.length - 1) { si++; shown = 0; draw(); if (slides[si].kind === 'end') confetti(el.querySelector('.cer-stage'), 90); }
+    };
+    const onKey = e => {
+      if (el.hidden) return;
+      if (e.key === 'Escape') close();
+      else if ((e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') && document.getElementById('cer-next')) { e.preventDefault(); next(); }
+    };
+    document.addEventListener('keydown', onKey);
+    draw();
+  }
+  // after the last match of a season: the ceremony opens by itself (once)
+  function maybeCeremony() {
+    const n = state.ceremonyDue;
+    if (!n || !modal.hidden) return;
+    state.ceremonyDue = null;
+    if (!ceremonySeen(n)) openCeremony(n, { draft: true });
+  }
+
   function seasonBannerHTML() {
     const db = state.db;
     const done = C.seasonDone(db);
@@ -1653,7 +1796,10 @@
         <div class="muted" style="font-size:14px">${switching
           ? 'From next season the 20 city clubs play both competitions with one squad: 18 of them in the new Städteliga (three divisions of 6), all 20 in the Städtepokal. The draft sets the squads first.'
           : changeoverNext ? 'Dresden joins as the 21st club. From next season every club plays both competitions: the Städteliga in three divisions of 7 and the Städtepokal in 7 groups of 3, then a Round of 16. The draft sets the squads: each club keeps 2, the rest are drafted.' : 'The draft sets next season\'s squads for both competitions: each club keeps 2, the rest are drafted.'}</div></div>
-        <button class="primary" id="btn-season-draft">Open the draft</button>
+        <div class="btn-row">${!switching && db.clubs && C.seasonCeremony(db, db.clubs.seasons)
+          ? (ceremonySeen(db.clubs.seasons) ? '<button class="secondary" id="btn-ceremony">🏆 Watch the ceremony again</button><button class="primary" id="btn-season-draft">Open the draft</button>'
+            : '<button class="primary" id="btn-ceremony">🏆 Award ceremony</button><button class="secondary" id="btn-season-draft">Open the draft</button>')
+          : '<button class="primary" id="btn-season-draft">Open the draft</button>'}</div>
       </div>`;
     }
     if (C.clubEra(db) && !db.competitions.some(c => c.kind === 'cup' || c.kind === 'liga')) {
@@ -1758,6 +1904,7 @@
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
     const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
     const dr = document.getElementById('btn-season-draft'); if (dr) dr.onclick = () => openTransfers('cup');
+    const cer = document.getElementById('btn-ceremony'); if (cer) cer.onclick = () => openCeremony(state.db.clubs.seasons, { draft: true });
     const sc = document.getElementById('btn-start-clubs'); if (sc) sc.onclick = () => { C.startClubSeason(state.db); save(); render(); };
     bindNextUp(app);
     bindPlayerLinks();
@@ -2100,6 +2247,7 @@
 
   // ---------- Records: pop-up when one falls ----------
   function recordWithCheck(compId, fixtureId, m, mode) {
+    const wasDone = !!C.seasonDone(state.db);
     const before = C.allTimeRecords(state.db);
     C.recordMatch(state.db, compId, fixtureId, m, mode);
     const comp = state.db.competitions.find(c => c.id === compId);
@@ -2107,6 +2255,7 @@
     const after = C.allTimeRecords(state.db);
     const broken = C.brokenRecords(before, after, f && f.matchId);
     if (broken.length) state.newRecords = (state.newRecords || []).concat(broken);
+    if (!wasDone && C.seasonDone(state.db) && state.db.clubs && state.db.clubs.seasons) state.ceremonyDue = state.db.clubs.seasons;
   }
   function recordHolder(r) {
     const pm = pmap();
@@ -2116,7 +2265,8 @@
   }
   function showRecordPopup() {
     const list = state.newRecords || [];
-    if (!list.length || !modal.hidden) return;
+    if (!list.length) { maybeCeremony(); return; }
+    if (!modal.hidden) return;
     state.newRecords = [];
     const rows = list.map(r => `<li class="nr-row">
       <div class="cc-kicker">${esc(r.label)}</div>
@@ -2131,7 +2281,7 @@
       <div class="btn-row" style="justify-content:flex-end;margin-top:14px"><button class="secondary" id="nr-all">All records</button><button class="primary" id="nr-close">Great</button></div>`;
     modal.hidden = false;
     bindPlayerLinks(modalCard);
-    document.getElementById('nr-close').onclick = () => { modal.hidden = true; };
+    document.getElementById('nr-close').onclick = () => { modal.hidden = true; maybeCeremony(); };
     document.getElementById('nr-all').onclick = () => { modal.hidden = true; state.screen = 'history'; render(); setTimeout(() => { const el = document.getElementById('records-panel'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 50); };
   }
 
@@ -2916,6 +3066,7 @@
     modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
       <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
       ${formLine}
+      ${(() => { const aw = C.playerAwards(db)[pid]; return aw && aw.length ? `<div class="badges">${aw.slice().reverse().map(a => `<span class="badge" title="${esc(a.label)} · Season ${a.season}">${a.icon} ${esc(a.label)} · S${a.season}</span>`).join('')}</div>` : ''; })()}
       <form id="rename-form" class="rename-form" hidden>
         <label for="rename-in" class="muted" style="font-size:13px">New name${state.store === 'cloud' && state.profile ? ` (only in ${esc(state.profile.name)}'s game)` : ''}</label>
         <div class="rename-row"><input id="rename-in" maxlength="30" value="${esc(p.name)}" autocomplete="off"><button class="primary" type="submit">Save</button><button class="secondary" type="button" id="rename-cancel">Cancel</button></div>
@@ -2990,6 +3141,30 @@
       <p class="muted" style="font-size:12px;margin:10px 0 0">When a record falls you get a pop-up. Fastest thirty/fifty count the ball the batter got there (older matches: balls faced in the whole innings).</p>
     </div>`;
   }
+  function hallOfFameHTML() {
+    const db = state.db, pm = pmap();
+    const rows = [];
+    for (let n = ((db.clubs && db.clubs.seasons) || 0); n >= 1; n--) {
+      const A = C.seasonCeremony(db, n); if (!A) continue;
+      const pl = r => r ? `<button class="plink" data-player="${r.pid}">${esc(pm[r.pid] ? pm[r.pid].name : r.pid)}</button>` : '–';
+      const ch = k => A.comp[k].champion ? chipTeam('cup', A.comp[k].champion) : '–';
+      rows.push(`<div class="hof-season">
+        <div class="hof-head"><b>Season ${n}</b><span class="muted">Städteliga S${A.liga.season} · Städtepokal S${A.cup.season}</span><button class="secondary small" data-ceremony="${n}">🏆 Watch the ceremony</button></div>
+        <div class="hof-grid">
+          <div><div class="cc-kicker">👑 Player of the Season</div>${pl(A.playerOfSeason)}</div>
+          <div><div class="cc-kicker">🏏 Golden Bat</div>${pl(A.goldenBat)}${A.goldenBat ? ` <span class="muted">${A.goldenBat.runs}</span>` : ''}</div>
+          <div><div class="cc-kicker">🎯 Golden Ball</div>${pl(A.goldenBall)}${A.goldenBall ? ` <span class="muted">${A.goldenBall.wkts}</span>` : ''}</div>
+          <div><div class="cc-kicker">🏆 Städteliga</div>${ch('l1')}</div>
+          <div><div class="cc-kicker">🏆 Städtepokal</div>${ch('cup')}</div>
+          <div><div class="cc-kicker">🥇 2. / 3. Liga</div>${ch('l2')} ${ch('l3')}</div>
+          ${A.clubOfSeason ? `<div><div class="cc-kicker">📈 Club of the Season</div>${chipTeam('cup', A.clubOfSeason.id)}</div>` : ''}
+          ${A.doubles.length ? `<div><div class="cc-kicker">🏆🏆 Double</div>${A.doubles.map(d => chipTeam('cup', d.id)).join(' ')}</div>` : ''}
+          <div class="hof-team"><div class="cc-kicker">🧢 Team of the Season</div>${A.team.players.map(x => pl(x) + (x.pid === A.team.captain ? ' ©️' : '')).join(' · ')}</div>
+        </div></div>`);
+    }
+    if (!rows.length) return '';
+    return `<div class="panel" id="hall-of-fame"><div class="inn-title"><h2>Hall of Fame</h2><span class="muted" style="font-size:13px">every season's award ceremony</span></div>${rows.join('')}</div>`;
+  }
   function cabinetHTML() {
     const T = C.trophyCabinet(state.db);
     if (!T.length) return '';
@@ -3045,10 +3220,12 @@
           ${state.store !== 'local' ? '<button class="secondary" id="btn-download">Download history.json</button>' : ''}
           <button class="secondary danger-ghost" id="btn-reset">Reset all history</button>
         </div></div>
+      ${hallOfFameHTML()}
       ${recordsPanelHTML()}
       ${cabinetHTML()}
       ${comps.length ? comps.map(card).join('') : '<div class="panel"><p class="muted" style="margin:0">No seasons yet. Start the first season from the home page.</p></div>'}
     </section>`;
+    app.querySelectorAll('[data-ceremony]').forEach(b => b.onclick = () => openCeremony(Number(b.dataset.ceremony)));
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
     const dl = document.getElementById('btn-download'); if (dl) dl.onclick = downloadHistory;

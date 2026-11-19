@@ -836,3 +836,46 @@ h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
 /* ---------- Städtepokal: best third-placed clubs ---------- */
 .thirds { margin-top: 16px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; }
 .thirds h3 { margin: 0 0 6px; }
+
+/* ---------- Season ceremony ---------- */
+#ceremony { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; overflow-y: auto;
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%), rgba(3, 8, 5, .94);
+  padding-block: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+#ceremony[hidden] { display: none; }
+body.no-scroll { overflow: hidden; }
+.cer-stage { position: relative; width: min(640px, 100%); min-height: min(560px, 90vh); display: flex; flex-direction: column; gap: 16px; padding: 24px 20px 20px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: var(--panel); box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+.cer-x { position: absolute; top: 10px; right: 12px; background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; padding: 6px; }
+.cer-head h1, .cer-intro h1 { margin: 4px 0 0; font-family: var(--display); text-transform: uppercase; letter-spacing: .5px; color: var(--accent); font-size: clamp(24px, 6vw, 36px); line-height: 1.05; text-wrap: balance; }
+.cer-intro { flex: 1; display: grid; place-content: center; text-align: center; gap: 8px; }
+.cer-intro p { margin: 0; }
+.cer-trophy { font-size: 72px; animation: nrPop .8s cubic-bezier(.2,1.6,.4,1); }
+.cer-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; flex: 1; align-content: start; }
+.cer-item { display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid var(--line); }
+.cer-item.on { animation: cerIn .5s cubic-bezier(.2,1.3,.4,1); }
+.cer-item.big.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cer-item.wait { opacity: .7; border-style: dashed; }
+.cer-ic { font-size: 26px; text-align: center; }
+.cer-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 700; }
+.cer-name { font-size: 19px; font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.cer-item.big .cer-name { font-size: 22px; }
+.cer-list.finale .cer-item { padding: 22px 16px; } .cer-list.finale .cer-ic { font-size: 44px; } .cer-list.finale .cer-name { font-size: 28px; }
+.cer-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.cer-club { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 600; }
+.cer-club .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.cer-item.big .cer-club, .cer-list.list .cer-name > .cer-club { font-size: inherit; }
+.cer-btns { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+@keyframes cerIn { from { transform: translateY(14px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.confetti i { position: absolute; top: -12px; width: 8px; height: 13px; border-radius: 2px; animation: confFall linear forwards; }
+@keyframes confFall { to { top: 105%; transform: rotate(540deg) translateX(30px); opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .confetti { display: none; } .cer-item.on, .cer-trophy { animation: none; } }
+/* badges and Hall of Fame */
+.badges { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px; margin: 6px 0 2px; text-align: left; }
+.badges .badge { text-transform: none; letter-spacing: 0; font-weight: 600; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); white-space: nowrap; }
+.hof-season { padding: 12px 0; border-top: 1px solid var(--line); }
+.hof-season:first-of-type { border-top: 0; }
+.hof-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.hof-head .small { margin-left: auto; padding: 6px 10px; font-size: 13px; }
+.hof-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; font-size: 14px; }
+.hof-team { grid-column: 1 / -1; }

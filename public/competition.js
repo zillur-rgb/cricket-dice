@@ -370,12 +370,13 @@
     const left = Math.max(0, (m.overs || 5) * 6 - b.balls);
     return 1 + Math.min(0.5, left / 24);                                                       // won chasing
   }
-  function clubRanking(db) {
+  function clubRanking(db, opts) {
+    const before = opts && opts.before;
     const clubs = teamsOf(db, 'cup').map(t => t.id);
     const pts = Object.fromEntries(clubs.map(id => [id, RANK_START]));
     const played = Object.fromEntries(clubs.map(id => [id, 0]));
     const order = () => clubs.slice().sort((a, b) => pts[b] - pts[a] || played[b] - played[a] || a.localeCompare(b));
-    const ms = db.matches.filter(m => (m.comp === 'cup' || m.comp === 'liga') && !m.friendly)
+    const ms = db.matches.filter(m => (m.comp === 'cup' || m.comp === 'liga') && !m.friendly && (!before || (m.date || '') < before))
       .slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     let blockKey = null, startOrder = order(), last = null;
     for (const m of ms) {
@@ -1057,6 +1058,139 @@
     return Object.values(T).map(t => ({ ...t, score: t.items.reduce((s, it) => s + weight(it), 0) })).sort((a, b) => b.score - a.score || b.items.length - a.items.length);
   }
 
+  // ---------------- Season ceremony ----------------
+  // Everything handed out after the last match of a club season (Städteliga + Städtepokal).
+  function statsOf(db, ms) {
+    const out = {};
+    for (const m of ms) {
+      const pids = new Set();
+      for (const I of m.innings) { I.batting.forEach(b => pids.add(b.pid)); I.dnb.forEach(x => pids.add(x)); I.bowling.forEach(b => pids.add(b.pid)); }
+      for (const pid of pids) { out[pid] = out[pid] || blank(); addMatch(out[pid], m, pid); }
+    }
+    return out;
+  }
+  function raceOf(db, ms) {
+    const total = {}, mats = {};
+    for (const m of ms) {
+      const { score } = impactScores(m.innings, m.winner);
+      for (const pid in score) { total[pid] = (total[pid] || 0) + score[pid]; mats[pid] = (mats[pid] || 0) + 1; }
+    }
+    const st = statsOf(db, ms), pm = playerMap(db);
+    return Object.entries(total).sort((a, b) => b[1] - a[1]).map(([pid, pts]) => {
+      const s = st[pid] || blank();
+      return { pid, name: pm[pid] ? pm[pid].name : pid, points: Math.round(pts), mat: mats[pid], runs: s.runs, balls: s.balls, hs: s.hs, hsNo: s.hsNo,
+        wkts: s.wkts, ballsBowled: s.ballsBowled, rc: s.runsConceded, bestW: s.bestW, bestR: s.bestR, motm: s.motm, s6: s.s6 };
+    });
+  }
+  const bestBatOf = race => race.filter(x => x.runs > 0).sort((a, b) => b.runs - a.runs || (b.runs / Math.max(1, b.balls)) - (a.runs / Math.max(1, a.balls)))[0] || null;
+  const bestBowlOf = race => race.filter(x => x.wkts > 0).sort((a, b) => b.wkts - a.wkts || (a.rc / Math.max(1, a.ballsBowled)) - (b.rc / Math.max(1, b.ballsBowled)))[0] || null;
+  const winnerOfF = f => f && f.result ? f.result.winner : null;
+  const loserOfF = f => f && f.result ? (f.result.winner === f.home ? f.away : f.home) : null;
+
+  let ceremonyCache = { key: null, map: {} };
+  function seasonCeremony(db, n) {
+    const key = db.matches.length + ':' + (db.matches.length ? db.matches[db.matches.length - 1].id : '');
+    if (ceremonyCache.db !== db || ceremonyCache.key !== key) ceremonyCache = { db, key, map: {} };
+    if (n in ceremonyCache.map) return ceremonyCache.map[n];
+    const comps = clubSeasonComps(db, n);
+    const liga = comps.find(c => c.kind === 'liga'), cup = comps.find(c => c.kind === 'cup');
+    if (!liga || !cup || liga.status !== 'complete' || cup.status !== 'complete') return (ceremonyCache.map[n] = null);
+    const pm = playerMap(db);
+    const clubOfPid = {};
+    for (const c of [liga, cup]) for (const t of squadsFor(db, c)) for (const pid of t.players) clubOfPid[pid] = t.id;
+    const ligaMs = db.matches.filter(m => m.compId === liga.id), cupMs = db.matches.filter(m => m.compId === cup.id);
+    const divOf = {};
+    for (const f of liga.fixtures) if (f.matchId) divOf[f.matchId] = f.div;
+    const scope = (key, label, ms, fin) => {
+      const race = raceOf(db, ms);
+      return { key, label, champion: winnerOfF(fin), runnerUp: loserOfF(fin), final: fin ? fin.matchId : null,
+        player: race[0] || null, bat: bestBatOf(race), bowl: bestBowlOf(race) };
+    };
+    const comp = {};
+    for (const d of [1, 2, 3]) comp['l' + d] = scope('l' + d, d === 1 ? '1. Liga' : `${d}. Liga`, ligaMs.filter(m => divOf[m.id] === d), liga.fixtures.find(f => f.stage === 'F' && f.div === d));
+    comp.cup = scope('cup', 'Städtepokal', cupMs, cup.fixtures.find(f => f.stage === 'F'));
+    const all = ligaMs.concat(cupMs);
+    const race = raceOf(db, all);
+    // Team of the Season: 2 batters, 2 all-rounders, 2 bowlers (by season points), the best of them captain
+    const team = [];
+    for (const role of ['bat', 'ar', 'bowl']) team.push(...race.filter(x => pm[x.pid] && pm[x.pid].role === role).slice(0, 2));
+    for (const x of race) { if (team.length >= 6) break; if (!team.includes(x)) team.push(x); }
+    const roleOrder = { bat: 0, ar: 1, bowl: 2 };
+    team.sort((a, b) => roleOrder[pm[a.pid].role] - roleOrder[pm[b.pid].role] || b.points - a.points);
+    const captain = team.slice().sort((a, b) => b.points - a.points)[0] || null;
+    // Moments of the season
+    const main = m => m.innings.filter(I => !I.superOver);
+    let top = null, figs = null, f50 = null, f30 = null, close = null;
+    for (const m of all) main(m).forEach((I, k) => {
+      const opp = main(m)[1 - k];
+      for (const b of I.batting) {
+        if (!top || b.r > top.b.r || (b.r === top.b.r && b.b < top.b.b)) top = { b, m, team: I.team, opp: opp && opp.team };
+        const b50 = b.b50 || (b.r >= 50 ? b.b : null), b30 = b.b30 || (b.r >= 30 ? b.b : null);
+        if (b50 && (!f50 || b50 < f50.balls)) f50 = { b, balls: b50, m, team: I.team };
+        if (b30 && (!f30 || b30 < f30.balls)) f30 = { b, balls: b30, m, team: I.team };
+      }
+      if (opp) for (const w of I.bowling) if (!figs || w.w > figs.w.w || (w.w === figs.w.w && w.r < figs.w.r)) figs = { w, m, team: opp.team, opp: I.team };
+    });
+    for (const m of all) {
+      const [a, b] = main(m); if (!m.winner || !b) continue;
+      let gap, txt;
+      if (m.superOvers && m.superOvers.length) { gap = -1; txt = 'won in a Super Over'; }
+      else if (m.winner === a.team) { gap = a.runs - b.runs; txt = `won by ${gap} run${gap === 1 ? '' : 's'}`; }
+      else { gap = (m.overs || 5) * 6 - b.balls; txt = gap === 0 ? 'won off the last ball' : `won with ${gap} ball${gap === 1 ? '' : 's'} to spare`; }
+      if (!close || gap < close.gap) close = { m, gap, txt, winner: m.winner, loser: m.teams.find(t => t !== m.winner) };
+    }
+    const fast = f50 ? { kind: 'Fastest fifty', ...f50 } : f30 ? { kind: 'Fastest thirty', ...f30 } : null;
+    // Club of the Season: biggest climb in the club ranking over the season
+    const dates = all.map(m => m.date || '').sort();
+    let clubOfSeason = null;
+    if (dates.length) {
+      const start = clubRanking(db, { before: dates[0] }).byId, end = clubRanking(db, { before: dates[dates.length - 1] + '~' }).byId;
+      const fresh = Object.values(start).every(r => !r.played);      // nobody had played yet: go by points gained
+      for (const id of Object.keys(end)) {
+        if (!start[id]) continue;
+        const climb = start[id].rank - end[id].rank, gain = end[id].pts - start[id].pts;
+        if (!clubOfSeason || (fresh ? gain > clubOfSeason.gain : climb > clubOfSeason.climb || (climb === clubOfSeason.climb && gain > clubOfSeason.gain))) clubOfSeason = { id, climb, gain, from: start[id].rank, to: end[id].rank, pts: end[id].pts };
+      }
+    }
+    // Doubles: a division title and the Städtepokal in the same season
+    const doubles = [1, 2, 3].filter(d => comp['l' + d].champion && comp['l' + d].champion === comp.cup.champion).map(d => ({ id: comp.cup.champion, div: d }));
+    const mv = ligaMoves(db, liga);
+    const out = {
+      n, liga, cup, comp, clubOfPid,
+      playerOfSeason: race[0] || null,
+      goldenBat: bestBatOf(race), goldenBall: bestBowlOf(race),
+      team: { players: team, captain: captain ? captain.pid : null },
+      moments: {
+        top: top ? { pid: top.b.pid, val: `${top.b.r}${top.b.out ? '' : '*'}`, sub: `${top.b.b} balls`, match: top.m.id, team: top.team, opp: top.opp } : null,
+        figs: figs ? { pid: figs.w.pid, val: `${figs.w.w}/${figs.w.r}`, sub: `${E.oversStr(figs.w.balls)} overs`, match: figs.m.id, team: figs.team, opp: figs.opp } : null,
+        fast: fast ? { kind: fast.kind, pid: fast.b.pid, val: `${fast.balls} balls`, sub: `${fast.b.r}${fast.b.out ? '' : '*'} in the innings`, match: fast.m.id, team: fast.team } : null,
+        close: close ? { match: close.m.id, winner: close.winner, loser: close.loser, txt: close.txt, comp: close.m.compName, stage: close.m.stage } : null,
+      },
+      moves: { up: mv.upTo, down: mv.downTo },
+      clubOfSeason, doubles,
+    };
+    return (ceremonyCache.map[n] = out);
+  }
+  // Every award a player has won at the season ceremonies (for badges and the Hall of Fame)
+  function playerAwards(db) {
+    const out = {};
+    const add = (pid, icon, label, n) => { if (pid) (out[pid] = out[pid] || []).push({ icon, label, season: n }); };
+    for (let n = 1; n <= ((db.clubs && db.clubs.seasons) || 0); n++) {
+      const A = seasonCeremony(db, n); if (!A) continue;
+      add(A.playerOfSeason && A.playerOfSeason.pid, '👑', 'Player of the Season', n);
+      add(A.goldenBat && A.goldenBat.pid, '🏏', 'Golden Bat', n);
+      add(A.goldenBall && A.goldenBall.pid, '🎯', 'Golden Ball', n);
+      for (const k of ['l1', 'l2', 'l3', 'cup']) {
+        const c = A.comp[k];
+        add(c.player && c.player.pid, '⭐', `Player of the ${c.label}`, n);
+        add(c.bat && c.bat.pid, '🏏', `Best batter · ${c.label}`, n);
+        add(c.bowl && c.bowl.pid, '🎯', `Best bowler · ${c.label}`, n);
+      }
+      for (const x of A.team.players) add(x.pid, x.pid === A.team.captain ? '©️' : '🧢', x.pid === A.team.captain ? 'Team of the Season (captain)' : 'Team of the Season', n);
+    }
+    return out;
+  }
+
   // ---------------- Season story ----------------
   // A few headlines about the latest round of the current season (both competitions).
   function seasonStory(db) {
@@ -1644,7 +1778,7 @@
     teamsOf, clubEra, leagueKind, ligaClubs, ligaDivisions, ligaMoves, ligaChangeover, expanded, newCup, thirdPlaced, cupRanking, clubRanking, clubOrder, startClubSeason, clubSeasonComps, combinedRace, seasonDone, LIGA_CLUBS,
     buildMatch, simulateFixture, pendingFixtures, fmtStats, blankStats: blank,
     impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf, raceFor, seasonRecords,
-    allTimeRecords, brokenRecords, trophyCabinet, seasonStory, RECORD_ORDER,
+    allTimeRecords, brokenRecords, trophyCabinet, seasonStory, RECORD_ORDER, seasonCeremony, playerAwards,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketComp = api;
