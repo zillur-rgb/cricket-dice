@@ -803,25 +803,12 @@ h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
 .l5-up { color: #8bd16a; white-space: nowrap; } .l5-down { color: var(--red); white-space: nowrap; }
 .l5-now { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; padding: 0 5px; }
 
-/* ---------- Win chance bar + over summary ---------- */
-.wp { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #c9bf9f; }
-.wp-lbl { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
-.wp-lbl > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.wp-lbl b { font-family: var(--mono); }
-.wp-lbl .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.wp-title { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: #6b6750; font-weight: 700; }
-.wp-move { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 0 5px; border-radius: 999px; background: #1a1a14; color: var(--cream); }
-.wp-bar { position: relative; height: 12px; border-radius: 999px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
-.wp-a { height: 100%; transition: width .9s cubic-bezier(.3,.8,.3,1); box-shadow: 2px 0 0 #fff8; }
-.wp-mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: #1a1a1455; }
-.break-wp { max-width: 420px; margin: 6px auto 14px; background: var(--cream); color: var(--ink); border-radius: 12px; padding: 2px 14px 12px; text-align: left; }
-.break-wp .wp { border-top: 0; }
+/* ---------- Over summary ---------- */
 .over-sum { background: var(--panel-2); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; text-align: left; }
 .modal-card .over-sum { margin-bottom: 14px; }
 .os-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 14px; }
 .os-head b { font-family: var(--display); text-transform: uppercase; letter-spacing: .5px; font-size: 16px; color: var(--accent); }
 .os-line { font-size: 13px; }
-.over-sum .wp-move { background: var(--bg); color: var(--text); }
 
 /* ---------- Season story ---------- */
 .story-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
@@ -845,3 +832,7 @@ h4.div-lb-h { font-size: 15px; margin: 12px 0 6px; }
 .nr-who { font-size: 14px; } .nr-prev { font-size: 12px; margin-top: 2px; }
 #records-panel .rec-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 @media (max-width: 420px) { #records-panel .rec-grid { grid-template-columns: 1fr 1fr; } #records-panel .rec-val { font-size: 18px; } }
+
+/* ---------- Städtepokal: best third-placed clubs ---------- */
+.thirds { margin-top: 16px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; }
+.thirds h3 { margin: 0 0 6px; }

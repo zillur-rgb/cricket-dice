@@ -372,7 +372,6 @@
     });
     app.querySelectorAll('.js-quick').forEach(q => q.onchange = () => { state.quick = q.checked; app.querySelectorAll('.js-quick').forEach(x => { x.checked = q.checked; }); });
     bindPlayerLinks(app);
-    animateWp(app);
     const i = inn();
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
   }
@@ -438,43 +437,6 @@
     </div>`;
   }
 
-  // ---------- Win probability ----------
-  // Recomputed once per ball (the engine plays the rest of the match 250 times from here)
-  function wpKey(m) {
-    const i = inn();
-    return `${m.teams[0].id || m.teams[0].name}|${m.teams[1].id || m.teams[1].name}|${m.innings.length}|${i.balls}|${i.runs}|${i.wkts}|${i.log.length}|${m.result ? 'r' : ''}`;
-  }
-  function wpNow() {
-    const m = state.match;
-    if (!m || !m.innings.length) return null;
-    const key = wpKey(m);
-    if (state.wp && state.wp.key === key) return state.wp;
-    const same = state.wp && state.wp.match === `${m.teams[0].name}|${m.teams[1].name}`;
-    const p = E.winProbability(m, 250);
-    state.wp = { key, p, prev: same ? state.wp.p : null, match: `${m.teams[0].name}|${m.teams[1].name}`, shown: same ? state.wp.shown : null };
-    return state.wp;
-  }
-  function wpHTML() {
-    const W = wpNow();
-    if (!W) return '';
-    const m = state.match, a = m.teams[0], b = m.teams[1];
-    const pa = Math.round(W.p * 100), pb = 100 - pa;
-    const d = W.prev === null ? 0 : Math.round((W.p - W.prev) * 100);
-    const move = d ? `<span class="wp-move" title="Change since the last ball">▲${Math.abs(d)} ${esc((d > 0 ? a : b).short || (d > 0 ? a : b).name)}</span>` : '';
-    const from = W.shown === null || W.shown === undefined ? pa : Math.round(W.shown * 100);
-    return `<div class="wp" data-wp-to="${pa}">
-      <div class="wp-lbl"><span><span class="dot" style="background:${a.color}"></span>${esc(a.short || a.name)} <b>${pa}%</b></span><span class="wp-title">Win chance ${move}</span><span><b>${pb}%</b> ${esc(b.short || b.name)}<span class="dot" style="background:${b.color}"></span></span></div>
-      <div class="wp-bar" style="background:${b.color}"><div class="wp-a" style="width:${from}%;background:${a.color}"></div><div class="wp-mid"></div></div>
-    </div>`;
-  }
-  // swing the bar from where it was to the new value
-  function animateWp(root) {
-    const el = (root || app).querySelector('.wp'); if (!el) return;
-    const bar = el.querySelector('.wp-a'), to = el.dataset.wpTo;
-    requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.width = to + '%'; }));
-    if (state.wp) state.wp.shown = state.wp.p;
-  }
-
   // ---------- Over summary ----------
   function makeOverSummary(ev) {
     const m = state.match, i = inn();
@@ -482,33 +444,23 @@
     const runs = evs.reduce((x, e) => x + (e.runs || 0), 0), wk = evs.filter(e => e.type === 'wicket').length;
     const bIdx = i.lastOverBowler !== null && i.lastOverBowler !== undefined ? i.lastOverBowler : i.bowler;
     const bs = bIdx !== null && bIdx !== undefined ? i.bowlers[bIdx] : null;
-    const W = wpNow();
-    const startP = state.overStartWp !== undefined && state.overStartWp !== null ? state.overStartWp : null;
     state.overSum = {
       over: ev.over + 1, runs, wk, tokens: (i.overLog[i.overLog.length - 1] || []).slice(),
       bowler: bs ? `${team(i.bowl).players[bIdx].name} ${oversFig(bs.balls)}-${bs.maidens || 0}-${bs.runs}-${bs.wkts}` : '',
       score: `${team(i.bat).short || team(i.bat).name} ${i.runs}/${i.wkts}`,
       need: i.target !== null ? `need ${i.target - i.runs} from ${(i.superOver ? 6 : m.overs * 6) - i.balls}` : '',
       maiden: !!ev.maiden,
-      wp: W ? W.p : null, wpFrom: startP, bat: i.bat,
+      bat: i.bat,
     };
   }
   function overSummaryHTML() {
     const S = state.overSum;
     if (!S) return '';
-    const m = state.match, tA = m.teams[0];
     const toks = S.tokens.map(t => { const cls = t === '4' ? 't4' : t === '6' ? 't6' : t === 'W' ? 'tW' : (t.startsWith('wd') || t.startsWith('nb')) ? 'tx' : ''; return `<span class="tok sm ${cls}">${esc(t)}</span>`; }).join('');
-    let wp = '';
-    if (S.wp !== null) {
-      const now = Math.round(S.wp * 100);
-      const d = S.wpFrom !== null ? now - Math.round(S.wpFrom * 100) : 0;
-      const tB = m.teams[1];
-      wp = `<div class="os-line">Win chance: ${esc(tA.short || tA.name)} ${now}% · ${esc(tB.short || tB.name)} ${100 - now}%${d ? ` <span class="wp-move">▲${Math.abs(d)} ${esc((d > 0 ? tA : tB).short || (d > 0 ? tA : tB).name)} this over</span>` : ''}</div>`;
-    }
     return `<div class="over-sum">
       <div class="os-head"><b>End of over ${S.over}</b><span>${S.runs} run${S.runs === 1 ? '' : 's'}${S.wk ? ` · ${S.wk} wicket${S.wk === 1 ? '' : 's'}` : ''}${S.maiden ? ' · maiden!' : ''}</span></div>
       <div class="this-over sm">${toks}</div>
-      <div class="os-line">${esc(S.score)}${S.need ? ` · ${esc(S.need)}` : ''}</div>${wp}
+      <div class="os-line">${esc(S.score)}${S.need ? ` · ${esc(S.need)}` : ''}</div>
       ${S.bowler ? `<div class="os-line muted">${esc(S.bowler)}</div>` : ''}
     </div>`;
   }
@@ -544,7 +496,6 @@
       <div class="sb-sub">${sub}</div>
       <div class="sb-vs">vs ${esc(bt.name)}${i.superOver ? ` · scores were level on ${m.innings[0].runs}` : m.innings.length === 2 ? ` · 1st innings ${m.innings[0].runs}/${m.innings[0].wkts}` : ''}</div>
       ${target}
-      ${wpHTML()}
     </div>`;
   }
 
@@ -766,7 +717,6 @@
     modalCard.querySelectorAll('[data-pstats]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.pstats, { back: openBowlerPicker }); });
     modalCard.querySelectorAll('[data-b]').forEach(b => b.onclick = () => {
       E.setBowler(m, Number(b.dataset.b));
-      const W = wpNow(); state.overStartWp = W ? W.p : null;
       modal.hidden = true;
       state.preview = true;
       render();
@@ -793,12 +743,10 @@
         <p class="muted" style="margin:0">${E.oversStr(I.balls)} overs · run rate ${E.runRate(I.runs, I.balls).toFixed(2)}</p>
         ${topPerformers(I)}
         <h2 style="margin-top:8px">${esc(chaser.name)} need ${I.runs + 1} to win</h2>
-        <div class="break-wp">${wpHTML()}</div>
         <button class="primary" id="btn-next">Start the chase</button>
       </div>
       <div class="panel">${scorecardHTML(0)}</div>
     </section>`;
-    animateWp(app);
     document.getElementById('btn-next').onclick = () => beginInnings(1 - I.bat);
   }
 
@@ -918,7 +866,7 @@
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
-        <li><b>City clubs</b>: 20 clubs of 6 players. 18 play the <b>Städteliga</b> (three divisions of 6; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and all 20 play the <b>Städtepokal</b>, with the same squad. Both competitions are one season: the draft opens when both are finished.</li>
+        <li><b>City clubs</b>: 21 clubs of 6 players (Dresden joined as the 21st). Every club plays both competitions with the same squad: the <b>Städteliga</b> (three divisions of 7, one club rests each round; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and the <b>Städtepokal</b> (7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final). Both competitions are one season: the draft opens when both are finished. Seasons started before Dresden joined keep their old format (18 clubs in divisions of 6, 20 in the cup).</li>
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
@@ -1508,8 +1456,12 @@
     const blurb = kind === 'league'
       ? `16 German states in two divisions · 7 players each · ${cfg.overs} overs · last man stands · 2 up, 2 down every season`
       : kind === 'liga'
-        ? `18 city clubs in three divisions of 6 · the same squads as the Städtepokal · ${cfg.overs} overs · 2 up, 2 down every season`
-        : `20 city clubs · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`;
+        ? (comp && comp.divisions && comp.divisions[1].length === 6
+          ? `18 city clubs in three divisions of 6 · the same squads as the Städtepokal · ${cfg.overs} overs · 2 up, 2 down every season`
+          : `21 city clubs in three divisions of 7 · the same squads as the Städtepokal · ${cfg.overs} overs · 2 up, 2 down every season`)
+        : comp && comp.format === 'v2'
+          ? `20 city clubs · 6 players each · ${cfg.overs} overs · 5 groups of 4, a second round of 2 groups, then semifinals`
+          : `21 city clubs · 6 players each · ${cfg.overs} overs · 7 groups of 3, then Round of 16, quarterfinals, semifinals and final`;
     let status = kind === 'liga' && !comp ? '<span class="muted">Starts with the next season</span>' : '<span class="muted">No season played yet</span>';
     if (comp && comp.status === 'complete' && comp.kind === 'liga') status = `Season ${comp.season} champions: <b>${[1, 2, 3].map(d => comp.summary.divChampions[d] ? esc(comp.summary.divChampions[d].champion) : '–').join('</b> · <b>')}</b>`;
     else if (comp && comp.status === 'complete') status = `Season ${comp.season} champions: <b>${esc(comp.summary.champion)}</b>`;
@@ -1693,18 +1645,20 @@
     const done = C.seasonDone(db);
     if (done) {
       const switching = !C.clubEra(db);
+      const lastLiga = C.lastComp(db, 'liga');
+      const changeoverNext = !switching && lastLiga && C.ligaChangeover(db, lastLiga);
       return `<div class="panel season-banner">
         <div><div class="cc-kicker">Season finished</div>
         <b>${switching ? 'The Länderliga and the Städtepokal are finished.' : 'The Städteliga and the Städtepokal are finished.'}</b>
         <div class="muted" style="font-size:14px">${switching
           ? 'From next season the 20 city clubs play both competitions with one squad: 18 of them in the new Städteliga (three divisions of 6), all 20 in the Städtepokal. The draft sets the squads first.'
-          : 'The draft sets next season\'s squads for both competitions: each club keeps 2, the rest are drafted.'}</div></div>
+          : changeoverNext ? 'Dresden joins as the 21st club. From next season every club plays both competitions: the Städteliga in three divisions of 7 and the Städtepokal in 7 groups of 3, then a Round of 16. The draft sets the squads: each club keeps 2, the rest are drafted.' : 'The draft sets next season\'s squads for both competitions: each club keeps 2, the rest are drafted.'}</div></div>
         <button class="primary" id="btn-season-draft">Open the draft</button>
       </div>`;
     }
     if (C.clubEra(db) && !db.competitions.some(c => c.kind === 'cup' || c.kind === 'liga')) {
       return `<div class="panel season-banner"><div><div class="cc-kicker">Season 1</div><b>Start the first season</b>
-        <div class="muted" style="font-size:14px">The Städteliga and the Städtepokal start together, with the same 20 city clubs.</div></div>
+        <div class="muted" style="font-size:14px">The Städteliga and the Städtepokal start together, with the same ${C.teamsOf(db, 'cup').length} city clubs.</div></div>
         <button class="primary" id="btn-start-clubs">Start season 1</button></div>`;
     }
     const lk = C.leagueKind(db);
@@ -1774,7 +1728,7 @@
     app.innerHTML = `<section class="home">
       <div class="setup-hero">
         <h1>Cricket Dice</h1>
-        <p>${C.clubEra(db) ? '20 city clubs, one squad each, two competitions: the Städteliga and the Städtepokal. Every run and wicket counts toward each player\'s career.' : 'Two competitions, one squad of 120 players. Every run and wicket counts toward each player\'s career, whichever team they\'re playing for.'}</p>
+        <p>${C.clubEra(db) ? `${C.teamsOf(db, 'cup').length} city clubs, one squad each, two competitions: the Städteliga and the Städtepokal. Every run and wicket counts toward each player's career.` : 'Two competitions, one squad of 120 players. Every run and wicket counts toward each player\'s career, whichever team they\'re playing for.'}</p>
       </div>
       ${storeBanner()}
       ${liveMatchInProgress() ? `<div class="panel resume"><div><b>Match in progress</b><div class="muted">${esc(state.match.teams[0].name)} vs ${esc(state.match.teams[1].name)}</div></div><button class="primary" id="btn-resume">Resume</button></div>` : ''}
@@ -1822,10 +1776,10 @@
         : `<div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1${C.clubEra(db) ? ' (Städteliga + Städtepokal)' : ''}</button></div>`;
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'liga'
-          ? `18 of the 20 city clubs, with the same squads they use in the Städtepokal, in three divisions of 6: the 1. Liga, 2. Liga and 3. Liga. Every club plays its own division once (5 matches), ${cfg.overs} overs a side. The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Städteliga champion, the 2. and 3. Liga finals their own champions. The bottom 2 of the 1. and 2. Liga go down, the top 2 of the 2. and 3. Liga go up. The other 2 clubs play only the Städtepokal.`
+          ? `All 21 city clubs, with the same squads they use in the Städtepokal, in three divisions of 7: the 1. Liga, 2. Liga and 3. Liga. Every club plays its own division once (6 matches, one club rests each round), ${cfg.overs} overs a side. The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Städteliga champion, the 2. and 3. Liga finals their own champions. The bottom 2 of the 1. and 2. Liga go down, the top 2 of the 2. and 3. Liga go up.`
           : kind === 'league'
           ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Länderliga champion, the 2. Liga final the 2. Liga champion. The bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up. The 1. Liga's 6th plays the 2. Liga's 3rd in a play-off, and the winner plays in the 1. Liga next season. Last man stands: when everyone else is out, the last batter bats on alone.`
-          : `20 German cities, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 5 groups of 4; the top 2 of each group play a second round in 2 groups of 5; the top 2 of those reach the semifinals, then the final.`}</p></div>
+          : `21 city clubs, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final.`}</p></div>
         ${storeBanner()}
         ${startNote}
         <div class="panel" style="margin-top:16px">${squadsHTML(kind)}</div>
@@ -1936,7 +1890,7 @@
         <div class="muted">${C.STAGE_LABEL[comp.stage]}${comp.status === 'complete' ? ' · complete' : ''} · ${done} of ${comp.fixtures.length} matches played</div></div>
         ${comp.status !== 'complete' && !comp.clubSeason ? '<button class="secondary danger-ghost" id="btn-cancel-season">Cancel this season</button>' : ''}
       </div>
-      ${comp.status !== 'complete' && comp.format !== cfg.format ? `<div class="store warn">● This season uses the old ${esc(cfg.name)} format. Cancel it to start fresh with the new format.</div>` : ''}
+      ${comp.status !== 'complete' && comp.format !== cfg.format && !C.newCup(comp) ? `<div class="store warn">● This season uses the old ${esc(cfg.name)} format. Cancel it to start fresh with the new format.</div>` : ''}
       ${storeBanner()}
       <div class="panel">${top}</div>
       <div class="panel">
@@ -2231,7 +2185,7 @@
   function stakeNote(comp, scope, r, id) {
     const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope, comp);
     if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d >= 2 && kind !== 'liga' ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
-    if (t.status === 'out') return 'Out';
+    if (t.status === 'out') return comp.format === 'v3' && scope.type === 'group' ? 'Can\'t finish top 2 · can still go through as one of the 2 best third-placed clubs' : 'Out';
     const nm = x => tname(kind, x);
     const opp = namesJoin(t.left.map(nm));
     const conds = list => namesJoin((list || []).map(q => `${nm(q.winner)} beat ${nm(q.loser)}`));          // "... if X beat Y"
@@ -2310,12 +2264,17 @@
       const mv = prev && prev.summary && prev.summary.moves;
       const nm = id => esc(tname('liga', id));
       const came = mv ? [...(mv.upTo[d] || []).map(id => `${nm(id)} ⬆`), ...(mv.downTo[d] || []).map(id => `${nm(id)} ⬇`)] : [];
+      const fresh = d === 3 && prev ? comp.divisions[3].filter(id => !prev.divisions || ![1, 2, 3].some(k => prev.divisions[k].includes(id))) : [];
+      came.push(...fresh.map(id => `${nm(id)} (new)`));
       const intro = came.length ? `<p class="muted note" style="margin-top:0">New in the ${d}. Liga this season: <b>${came.join(', ')}</b></p>`
         : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Städteliga season: divisions set by ${comp.seededBy === 'cup' ? 'how far each club got in the last Städtepokal' : 'squad strength'}.</p>` : '';
-      const cls = (i, n) => [i < 4 ? 'q' : '', d > 1 && i < 2 ? 'up' : '', d < 3 && i >= n - 2 ? 'rel' : ''].filter(Boolean).join(' ');
+      const ch = C.ligaChangeover(state.db, comp);
+      const down = ch ? (d === 1 ? 1 : 0) : (d < 3 ? 2 : 0);
+      const cls = (i, n) => [i < 4 ? 'q' : '', d > 1 && i < 2 ? 'up' : '', down && i >= n - down ? 'rel' : ''].filter(Boolean).join(' ');
       const note = `<span class="zone q">Top 4</span> play the semifinals for the ${d}. Liga title.`
         + (d > 1 ? ` <span class="zone up">Top 2</span> go up to the ${d - 1}. Liga.` : '')
-        + (d < 3 ? ` <span class="zone rel">Bottom 2</span> go down to the ${d + 1}. Liga.` : '');
+        + (down ? ` <span class="zone rel">${down === 1 ? 'Bottom club' : 'Bottom 2'}</span> ${down === 1 ? 'goes' : 'go'} down to the ${d + 1}. Liga.` : '')
+        + (ch ? ` <b>Changeover season:</b> from next season every division has 7 clubs (Dresden joins, and all 21 clubs play the Städteliga), so this time ${d === 1 ? 'only the bottom club goes down' : d === 2 ? 'nobody goes down' : 'the 3. Liga is joined by the 2 Städtepokal-only clubs and Dresden'}.` : '');
       return intro + standingsTable('liga', rows, 0, cls) + `<p class="muted note">${note} Promotion and relegation go by this table. Win 2 pts. Level on points: net run rate decides.</p>` + (comp.stage === 'league' ? raceHTML(comp, { type: 'div', d }) : '');
     }
     const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
@@ -2337,7 +2296,17 @@
 
   function groupsHTML(comp) {
     return `<div class="groups">${Object.keys(comp.groups).map(g => `<div><h3>Group ${g}</h3>${standingsTable('cup', C.groupTable(state.db, comp, g), 2)}${comp.stage === 'group' ? raceHTML(comp, { type: 'group', g }) : ''}</div>`).join('')}</div>
-      <p class="muted note">${comp.format === 'v2' ? 'Top 2 in each group reach the second round.' : 'Top 2 in each group reach the Round of 16.'}</p>`;
+      ${comp.format === 'v3' ? thirdsHTML(comp) : ''}
+      <p class="muted note">${comp.format === 'v2' ? 'Top 2 in each group reach the second round.' : comp.format === 'v3' ? 'Top 2 in each group and the 2 best third-placed clubs reach the Round of 16.' : 'Top 2 in each group reach the Round of 16.'}</p>`;
+  }
+
+  // Städtepokal (21 clubs): the third-placed clubs of all 7 groups; the best 2 reach the Round of 16
+  function thirdsHTML(comp) {
+    const rows = C.thirdPlaced(state.db, comp);
+    if (!rows.length) return '';
+    return `<div class="thirds"><h3>Best third-placed clubs</h3>
+      ${standingsTable('cup', rows, 2)}
+      <p class="muted note" style="margin-top:4px">Groups: ${rows.map(r => r.group).join(' · ')}. The top 2 of this table go through${comp.stage === 'group' ? ' (as things stand)' : ''}.</p></div>`;
   }
 
   function round2HTML(comp) {
@@ -2396,6 +2365,7 @@
     }).join('');
     const intro = comp.kind === 'league' ? (comp.format === 'div' ? 'Semifinals: 1st v 4th and 2nd v 3rd of the 1. Liga.' : 'Semifinals: 1st v 4th and 2nd v 3rd after the league stage.')
       : comp.format === 'v2' ? 'Semifinals: winner of second-round Group X v runner-up of Group Y, and winner of Y v runner-up of X.'
+      : comp.format === 'v3' ? 'Round of 16: the 7 group winners, 7 runners-up and 2 best third-placed clubs, seeded 1–16 (winners first, then runners-up, then thirds; by points and net run rate). 1 v 16, 2 v 15 and so on; two clubs from the same group don\'t meet in the Round of 16.'
       : 'Group winners play runners-up from the neighbouring group.';
     return `<p class="muted note" style="margin-top:0">${intro} A tied knockout is decided on boundary count.</p><div class="bracket">${cols}</div>`;
   }
@@ -2793,7 +2763,7 @@
   // The club's last 5 seasons: Städteliga place and how far it got in the Städtepokal
   function lastSeasonsHTML(id) {
     const db = state.db;
-    const cups = db.competitions.filter(c => c.kind === 'cup' && c.format === 'v2').sort((a, b) => (a.startedAt || '').localeCompare(b.startedAt || '')).slice(-5).reverse();
+    const cups = db.competitions.filter(c => C.newCup(c)).sort((a, b) => (a.startedAt || '').localeCompare(b.startedAt || '')).slice(-5).reverse();
     if (!cups.length) return '';
     const tag = (c) => `<span class="l5-s">S${c.season}</span>`;
     const ligaCell = (cup) => {
@@ -2808,10 +2778,12 @@
     };
     const cupCell = (c) => {
       const h = teamSeasonLine(c, 'cup', id);
-      if (!h) return `${tag(c)}<span class="muted">–</span>`;
+      if (!h) return `${tag(c)}<span class="muted">${(c.squads && !c.squads[id]) ? 'Not in the Städtepokal yet' : '–'}</span>`;
       let stage = h.line || (/^Second round/.test(h.table) ? 'Second round' : 'Group stage');
       if (h.line === 'Champion') stage = '🏆 Winner'; else if (h.line === 'Runner-up') stage = 'Final';
       else if (/semifinal/.test(h.line)) stage = 'Semifinal';
+      else if (/quarterfinal/.test(h.line)) stage = 'Quarterfinal';
+      else if (/round of 16/i.test(h.line)) stage = 'Round of 16';
       let pos = '';
       if (c.status === 'complete') { const i = C.cupRanking(db, c).indexOf(id); if (i >= 0) pos = ` <span class="muted">· ${ordinal(i + 1)} of ${C.cupRanking(db, c).length}</span>`; }
       else pos = ` <span class="muted">· ${esc(h.table)}</span>`;
@@ -2868,7 +2840,8 @@
     const curComp = C.activeComp(db, 'cup') && kind === 'cup' ? C.activeComp(db, 'cup') : C.activeComp(db, kind) || C.lastComp(db, kind);
     const squad = (curComp ? C.squadsFor(db, curComp) : C.teamsOf(db, kind)).find(x => x.id === id);
     const cupOnly = isClub && db.clubs && db.clubs.cupOnly && db.clubs.cupOnly.includes(id);
-    modalCard.innerHTML = `<div class="cc-kicker">${isClub ? `City club · ${cupOnly ? 'Städtepokal only' : 'Städteliga + Städtepokal'}` : `${esc(C.COMPS[kind].name)}${titles ? ` · ${titles} title${titles === 1 ? '' : 's'}` : ''}`}</div>
+    const notYet = isClub && !db.competitions.some(c => (c.kind === 'cup' || c.kind === 'liga') && c.squads && c.squads[id]);
+    modalCard.innerHTML = `<div class="cc-kicker">${isClub ? `City club · ${notYet ? 'new club · plays from next season' : cupOnly ? 'Städtepokal only' : 'Städteliga + Städtepokal'}` : `${esc(C.COMPS[kind].name)}${titles ? ` · ${titles} title${titles === 1 ? '' : 's'}` : ''}`}</div>
       <h2 class="tm-title"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${kind === 'cup' ? rankChip(id) : ''}</h2>
       ${kind === 'cup' && rankInfo().byId[id] ? `<div class="muted tm-rank">Club ranking: <b>#${rankInfo().byId[id].rank}</b> of ${rankInfo().rows.length} · ${rankInfo().byId[id].pts} pts</div>` : ''}
       ${form ? `<div class="tm-form">Form ${form}</div>` : ''}
