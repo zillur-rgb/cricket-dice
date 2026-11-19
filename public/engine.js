@@ -441,6 +441,7 @@
       if (r % 2 === 1) swapStrike(inn);
       inn.freeHit = true;
       ev.type = 'noball'; ev.runs = 1 + r; ev.text = pickOne(LINES.NB) + (r ? ` And ${r} off the bat!` : '');
+      milestone(st, ev, strikerName);
       tokens.push(r ? `nb+${r}` : 'nb');
       inn.log.push(ev); checkEnd(match); return ev;
     }
@@ -482,6 +483,7 @@
       if (r === 4) { st.fours++; bw.fours++; }
       if (r === 6) { st.sixes++; bw.sixes++; }
       ev.type = 'runs'; ev.runs = r; ev.text = pickOne(LINES[out]);
+      milestone(st, ev, strikerName);
       tokens.push(r === 0 ? '•' : String(r));
       if (r % 2 === 1) swapStrike(inn);
     }
@@ -512,6 +514,14 @@
     inn.log.push(ev);
     checkEnd(match);
     return ev;
+  }
+
+  // Remember the ball on which a batter reached 30 and 50 (for the fastest-thirty / fifty records)
+  function milestone(st, ev, name) {
+    for (const n of [30, 50]) {
+      const k = 'b' + n;
+      if (!st[k] && st.runs >= n) { st[k] = Math.max(1, st.balls); ev.milestone = n; ev.text += ` ${n === 50 ? 'FIFTY' : 'Thirty'} for ${name} off ${st[k]} balls!`; }
+    }
   }
 
   // Next batter in: a fresh one if any are left, otherwise a retired batter comes back
@@ -668,6 +678,32 @@
     return 'normal';
   }
 
+  // ---------- Win probability ----------
+  // Plays the rest of the match `n` times from the current ball with the computer's choices and
+  // counts how often each side wins (Super Overs included).
+  // Returns the chance (0..1) that teams[0] wins.
+  function winProbability(match, n) {
+    if (match.result) return match.result.winner === 0 ? 1 : match.result.winner === 1 ? 0 : 0.5;
+    const snap = JSON.stringify(match, (k, v) => (k === 'log' ? [] : v));
+    let w0 = 0;
+    n = n || 200;
+    for (let s = 0; s < n; s++) {
+      const m = JSON.parse(snap);
+      let guard = 0;
+      while (!m.result && guard++ < 400) {
+        const inn = cur(m);
+        if (inn.done) {
+          if (!startNextInnings(m)) break;
+          continue;
+        }
+        if (needsBowler(m)) setBowler(m, cpuChooseBowler(m));
+        bowlBall(m, cpuBatMode(m), cpuBowlPlan(m));
+      }
+      if (m.result) w0 += m.result.winner === 0 ? 1 : 0;
+    }
+    return w0 / n;
+  }
+
   // ---------- Formatting helpers ----------
   function oversStr(balls) { return `${Math.floor(balls / 6)}.${balls % 6}`; }
   function runRate(runs, balls) { return balls ? (runs * 6 / balls) : 0; }
@@ -677,7 +713,7 @@
     createMatch, doToss, cpuTossDecision, tossDecision, startInnings, cur, effectiveBowl,
     eligibleBowlers, needsBowler, setBowler, cpuChooseBowler,
     ballProbabilities, bowlBall, cpuBatMode, cpuBowlPlan, startNextInnings,
-    oversStr, runRate, setRandom, mulberry32, phaseOf,
+    oversStr, runRate, setRandom, mulberry32, phaseOf, winProbability,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketEngine = api;

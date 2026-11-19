@@ -924,6 +924,188 @@
     return r;
   }
 
+  // ---------------- All-time records ----------------
+  // Single-match records from every competition match, plus career records.
+  // Each record has a `score` (higher = better) so a new record is simply a higher score.
+  function allTimeRecords(db) {
+    const R = {};
+    const put = (key, label, score, data) => { if (!R[key] || score > R[key].score) R[key] = { key, label, score, ...data }; };
+    const kindOf = m => (m.comp === 'liga' ? 'cup' : m.comp);
+    for (const m of db.matches) {
+      if (!m.compId) continue;
+      const main = m.innings.filter(I => !I.superOver);
+      const base = { match: m.id, comp: m.compName, season: m.season, kind: kindOf(m) };
+      main.forEach((I, k) => {
+        put('highTotal', 'Highest total', I.runs * 1000 - I.balls, { ...base, val: `${I.runs}/${I.wkts}`, team: I.team, sub: `${E.oversStr(I.balls)} ov` });
+        const lost = k === 0 || m.winner !== I.team;
+        if (lost && (k === 0 ? I.balls >= (m.overs || 5) * 6 || I.wkts >= I.batting.length + I.dnb.length : true))
+          put('lowTotal', 'Lowest total', -I.runs * 1000 + I.balls, { ...base, val: `${I.runs}/${I.wkts}`, team: I.team, sub: `${E.oversStr(I.balls)} ov` });
+        for (const b of I.batting) {
+          put('topScore', 'Highest score', b.r * 1000 - b.b, { ...base, val: `${b.r}${b.out ? '' : '*'}`, pid: b.pid, team: I.team, sub: `${b.b} balls` });
+          for (const n of [30, 50]) {
+            const balls = b['b' + n] || (b.r >= n ? b.b : null);
+            if (balls) put('fast' + n, n === 50 ? 'Fastest fifty' : 'Fastest thirty', -balls * 1000 + b.r, { ...base, val: `${balls} balls`, pid: b.pid, team: I.team, sub: `${b.r}${b.out ? '' : '*'} in the innings` });
+          }
+          if (b.s6) put('sixesInn', 'Most sixes in an innings', b.s6 * 1000 + b.r, { ...base, val: b.s6, pid: b.pid, team: I.team, sub: `${b.r}${b.out ? '' : '*'} (${b.b})` });
+        }
+        const opp = main[1 - k];
+        for (const w of I.bowling) put('bestBowl', 'Best bowling', w.w * 1000 - w.r, { ...base, val: `${w.w}/${w.r}`, pid: w.pid, team: opp ? opp.team : null, sub: `${E.oversStr(w.balls)} ov` });
+      });
+      if (main.length === 2 && m.winner && !(m.superOvers && m.superOvers.length)) {
+        const [a, b] = main;
+        if (m.winner === b.team) {
+          put('highChase', 'Highest chase', b.runs * 1000 - b.balls, { ...base, val: `${b.runs}/${b.wkts}`, team: b.team, sub: `chasing ${a.runs + 1}`, opp: a.team });
+          const left = (m.overs || 5) * 6 - b.balls;
+          put('winBalls', 'Biggest win (balls left)', left * 100 - b.wkts, { ...base, val: `${left} balls`, team: b.team, opp: a.team, sub: `${b.runs}/${b.wkts} chasing ${a.runs + 1}` });
+        } else put('winRuns', 'Biggest win (runs)', (a.runs - b.runs) * 1000, { ...base, val: `${a.runs - b.runs} runs`, team: a.team, opp: b.team, sub: `${a.runs}/${a.wkts} v ${b.runs}/${b.wkts}` });
+      }
+    }
+    // career records
+    for (const [pid, st] of Object.entries(db.stats || {})) {
+      const a = st.all; if (!a) continue;
+      if (a.runs) put('careerRuns', 'Most career runs', a.runs * 1000 - a.inn, { val: a.runs, pid, sub: `${a.mat} matches`, career: true });
+      if (a.wkts) put('careerWkts', 'Most career wickets', a.wkts * 1000 - a.mat, { val: a.wkts, pid, sub: `${a.mat} matches`, career: true });
+      if (a.s6) put('careerSixes', 'Most career sixes', a.s6 * 1000 - a.mat, { val: a.s6, pid, sub: `${a.mat} matches`, career: true });
+      if (a.motm) put('careerPom', 'Most Player of the Match', a.motm * 1000 - a.mat, { val: a.motm, pid, sub: `${a.mat} matches`, career: true });
+    }
+    return R;
+  }
+  const RECORD_ORDER = ['highTotal', 'highChase', 'lowTotal', 'winRuns', 'winBalls', 'topScore', 'fast50', 'fast30', 'sixesInn', 'bestBowl', 'careerRuns', 'careerWkts', 'careerSixes', 'careerPom'];
+  // Records that a new match broke: a single-match record now held by that match, or a career record with a new holder
+  function brokenRecords(before, after, matchId) {
+    const out = [];
+    for (const k of RECORD_ORDER) {
+      const a = after[k], b = before[k];
+      if (!a || !b || a.score <= b.score) continue;
+      if (a.career ? a.pid !== b.pid : a.match === matchId) out.push({ ...a, prev: b });
+    }
+    return out;
+  }
+
+  // Titles won by each club (and by the states in the old Länderliga)
+  function trophyCabinet(db) {
+    const T = {};
+    const add = (kind, id, what, season) => { const k = `${kind}:${id}`; (T[k] = T[k] || { kind, id, items: [] }).items.push({ what, season }); };
+    const win = f => f && f.result && f.result.winner;
+    for (const c of db.competitions.filter(x => x.status === 'complete')) {
+      if (c.kind === 'cup') { const w = win(c.fixtures.find(f => f.stage === 'F')); if (w) add('cup', w, 'Städtepokal', c.season); }
+      else if (c.kind === 'liga') {
+        for (const f of c.fixtures.filter(x => x.stage === 'F' && x.result)) add('cup', win(f), f.div === 1 ? 'Städteliga' : `${f.div}. Liga`, c.season);
+      } else if (c.kind === 'league') {
+        const w = win(c.fixtures.find(f => f.stage === 'F')); if (w) add('league', w, 'Länderliga', c.season);
+        const w2 = win(c.fixtures.find(f => f.stage === 'F2')); if (w2) add('league', w2, '2. Liga', c.season);
+      }
+    }
+    const weight = it => (it.what === 'Städtepokal' || it.what === 'Städteliga' || it.what === 'Länderliga' ? 10 : 3);
+    return Object.values(T).map(t => ({ ...t, score: t.items.reduce((s, it) => s + weight(it), 0) })).sort((a, b) => b.score - a.score || b.items.length - a.items.length);
+  }
+
+  // ---------------- Season story ----------------
+  // A few headlines about the latest round of the current season (both competitions).
+  function seasonStory(db) {
+    let comps;
+    if (db.clubs && db.clubs.seasons) comps = clubSeasonComps(db, db.clubs.seasons);
+    else comps = ['league', 'liga', 'cup'].map(k => activeComp(db, k) || lastComp(db, k)).filter(Boolean);
+    const ids = new Set(comps.map(c => c.id));
+    const ms = db.matches.filter(m => ids.has(m.compId)).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    if (!ms.length) return null;
+    const lastM = ms[ms.length - 1];
+    const blockKey = m => `${m.compId}|${m.stage}|${m.round || ''}`;
+    const block = ms.filter(m => blockKey(m) === blockKey(lastM));
+    const comp = comps.find(c => c.id === lastM.compId);
+    const kind = m => (m.comp === 'liga' ? 'cup' : m.comp);
+    const tn = (m, id) => { const t = teamOf(db, kind(m), id); return t ? t.name : id; };
+    const pm = playerMap(db);
+    const pn = pid => (pm[pid] ? pm[pid].name : pid);
+    const H = [];
+    const add = (w, icon, text, ref) => H.push({ w, icon, text, ref: ref || null });
+    const main = m => m.innings.filter(I => !I.superOver);
+    const loser = m => m.teams.find(t => t !== m.winner);
+    const fixOf = m => { const c = comps.find(x => x.id === m.compId); return c && c.fixtures.find(f => f.matchId === m.id || f.id === m.id); };
+
+    // finals and semifinals
+    for (const m of block) {
+      if (!m.winner || !['F', 'SF', 'F2', 'SF2'].includes(m.stage)) continue;
+      const f = fixOf(m), d = f && f.div;
+      const title = m.comp === 'cup' ? 'the Städtepokal' : m.comp === 'liga' ? (d === 1 ? 'the Städteliga' : `the ${d}. Liga title`) : d === 2 || m.stage === 'F2' ? 'the 2. Liga title' : 'the Länderliga';
+      if (m.stage === 'F' || m.stage === 'F2') add(100, '🏆', `${tn(m, m.winner)} win ${title}, beating ${tn(m, loser(m))} in the final`, { match: m.id });
+      else add(80, '🎟️', `${tn(m, m.winner)} beat ${tn(m, loser(m))} to reach the ${m.comp === 'liga' && d && d > 1 ? d + '. Liga ' : ''}final`, { match: m.id });
+    }
+    // records that fell this round
+    const recs = allTimeRecords(db), blockIds = new Set(block.map(m => m.id));
+    for (const k of RECORD_ORDER) {
+      const r = recs[k];
+      if (!r || r.career || !blockIds.has(r.match)) continue;
+      const who = r.pid ? pn(r.pid) : r.team ? tn({ comp: r.kind === 'cup' ? 'cup' : r.kind }, r.team) : '';
+      add(90, '📜', `New record · ${r.label.toLowerCase()}: ${who} (${r.val})`, { match: r.match });
+    }
+    // standout performances
+    let bat = null, bowl = null;
+    for (const m of block) for (const [k, I] of main(m).entries()) {
+      const opp = main(m)[1 - k];
+      for (const b of I.batting) if (!bat || b.r > bat.b.r || (b.r === bat.b.r && b.b < bat.b.b)) bat = { b, m, opp: opp && opp.team };
+      if (opp) for (const w of I.bowling) if (!bowl || w.w > bowl.w.w || (w.w === bowl.w.w && w.r < bowl.w.r)) bowl = { w, m, opp: I.team };
+    }
+    if (bat && bat.b.r >= 30) add(65, '💥', `${pn(bat.b.pid)} smashes ${bat.b.r}${bat.b.out ? '' : '*'} off ${bat.b.b} balls against ${tn(bat.m, bat.opp)}`, { pid: bat.b.pid });
+    if (bowl && bowl.w.w >= 3) add(64, '🎯', `${pn(bowl.w.pid)} takes ${bowl.w.w}/${bowl.w.r} against ${tn(bowl.m, bowl.opp)}`, { pid: bowl.w.pid });
+    // closest finish and biggest win of the round
+    const margin = m => {
+      const [a, b] = main(m);
+      if (!m.winner || !b) return null;
+      if (m.superOvers && m.superOvers.length) return { close: 0, big: 0, txt: 'in a Super Over' };
+      if (m.winner === a.team) return { close: a.runs - b.runs, big: a.runs - b.runs, txt: `by ${a.runs - b.runs} run${a.runs - b.runs === 1 ? '' : 's'}` };
+      const left = (m.overs || 5) * 6 - b.balls;
+      return { close: left, big: left * 1.5, txt: left === 0 ? 'off the last ball' : `with ${left} ball${left === 1 ? '' : 's'} to spare` };
+    };
+    const withM = block.map(m => ({ m, g: margin(m) })).filter(x => x.g);
+    const close = withM.slice().sort((x, y) => x.g.close - y.g.close)[0];
+    if (close && close.g.close <= 3) add(70, '😮', `Thriller: ${tn(close.m, close.m.winner)} edge ${tn(close.m, loser(close.m))} ${close.g.txt}`, { match: close.m.id });
+    const big = withM.slice().sort((x, y) => y.g.big - x.g.big)[0];
+    if (big && big !== close && big.g.big >= 20) add(50, '🔨', `${tn(big.m, big.m.winner)} thrash ${tn(big.m, loser(big.m))} ${big.g.txt}`, { match: big.m.id });
+    // streaks over the whole season (both competitions)
+    const res = {};
+    for (const m of ms) for (const t of m.teams) (res[t] = res[t] || []).push({ w: m.winner === t, m });
+    const inBlock = new Set(block.flatMap(m => m.teams));
+    const streakLines = [];
+    for (const [t, list] of Object.entries(res)) {
+      if (!inBlock.has(t)) continue;
+      const m = list[list.length - 1].m, w = list.filter(x => x.w).length, l = list.length - w;
+      let run = 0; const lastW = list[list.length - 1].w;
+      for (let k = list.length - 1; k >= 0 && list[k].w === lastW; k--) run++;
+      if (list.length >= 3 && l === 0) streakLines.push([60 + w, '🛡️', `${tn(m, t)} stay unbeaten (${w}–0)`, { team: t, kind: kind(m) }]);
+      else if (list.length >= 4 && w === 0) streakLines.push([47 + l, '🥶', `${tn(m, t)} still without a win (0–${l})`, { team: t, kind: kind(m) }]);
+      else if (lastW && run >= 3) streakLines.push([45 + run, '📈', `${tn(m, t)} win ${run} in a row`, { team: t, kind: kind(m) }]);
+      else if (!lastW && run >= 3) streakLines.push([44 + run, '📉', `${tn(m, t)} lose again: ${run} defeats in a row`, { team: t, kind: kind(m) }]);
+    }
+    streakLines.sort((a, b) => b[0] - a[0]).slice(0, 3).forEach(x => add(...x));
+    // collapses
+    const collapsed = I => I.wkts >= 5 || (I.runs <= 30 && I.wkts >= 4);
+    let col = null;
+    for (const m of block) for (const I of main(m)) if (collapsed(I) && (!col || I.runs < col.I.runs)) col = { I, m };
+    if (col) {
+      const prev = ms.filter(x => x.date < col.m.date && x.teams.includes(col.I.team)).pop();
+      const again = prev && main(prev).some(I => I.team === col.I.team && collapsed(I));
+      add(again ? 58 : 48, '💀', `${tn(col.m, col.I.team)} collapse${again ? ' again' : ''}: ${col.I.runs}/${col.I.wkts}`, { match: col.m.id });
+    }
+    // players in form (🔥 / ❄️)
+    const blockPlayers = new Set(block.flatMap(m => main(m).flatMap(I => I.batting.map(b => b.pid).concat(I.bowling.map(b => b.pid)))));
+    const last3 = (pid, f) => db.matches.filter(m => m.compId && main(m).some(I => f(I).some(x => x.pid === pid))).slice(-3).map(m => { for (const I of main(m)) { const x = f(I).find(y => y.pid === pid); if (x) return x; } return null; });
+    const formed = [...blockPlayers].map(pid => ({ pid, f: formOf(db, pid) }));
+    formed.filter(x => x.f.bat >= 3).sort((a, b) => b.f.bat - a.f.bat).slice(0, 2).forEach(x => add(55 + x.f.bat, '🔥', `${pn(x.pid)} on a hot streak: ${last3(x.pid, I => I.batting).map(b => b.r + (b.out ? '' : '*')).join(', ')}`, { pid: x.pid }));
+    formed.filter(x => x.f.bowl >= 3).sort((a, b) => b.f.bowl - a.f.bowl).slice(0, 1).forEach(x => add(54 + x.f.bowl, '🔥', `${pn(x.pid)} in red-hot bowling form: ${last3(x.pid, I => I.bowling).map(w => `${w.w}/${w.r}`).join(', ')}`, { pid: x.pid }));
+    formed.filter(x => x.f.bat <= -3).sort((a, b) => a.f.bat - b.f.bat).slice(0, 1).forEach(x => add(35, '❄️', `${pn(x.pid)} out of touch: ${last3(x.pid, I => I.batting).map(b => b.r + (b.out ? '' : '*')).join(', ')}`, { pid: x.pid }));
+    // club ranking movers
+    if (clubEra(db)) {
+      const rk = clubRanking(db).rows;
+      const up = rk.slice().sort((a, b) => b.change - a.change)[0], down = rk.slice().sort((a, b) => a.change - b.change)[0];
+      const cn = id => { const t = teamOf(db, 'cup', id); return t ? t.name : id; };
+      if (up && up.change >= 3) add(40, '⬆️', `${cn(up.id)} climb ${up.change} places to #${up.rank} in the club ranking`, { team: up.id, kind: 'cup' });
+      if (down && down.change <= -3) add(38, '⬇️', `${cn(down.id)} drop ${-down.change} places to #${down.rank} in the club ranking`, { team: down.id, kind: 'cup' });
+    }
+    const items = H.sort((a, b) => b.w - a.w).slice(0, 7);
+    return { items, after: { comp: comp ? comp.name : lastM.compName, season: lastM.season, stage: lastM.stage, round: lastM.round } };
+  }
+
   // ---------------- Season records ----------------
   function seasonRecords(db, compId) {
     const ms = db.matches.filter(m => m.compId === compId);
@@ -981,6 +1163,7 @@
         team: bt.id, runs: I.runs, wkts: I.wkts, balls: I.balls, extras: I.extras.wd + I.extras.nb,
         batting: I.batters.filter(b => b.batted).map(b => ({
           pid: bt.players[b.idx].pid, r: b.runs, b: b.balls, f4: b.fours, s6: b.sixes, out: !!b.out, how: b.out ? b.out.text : (b.retired && !b.returned ? 'retired not out' : 'not out'),
+          ...(b.b30 ? { b30: b.b30 } : {}), ...(b.b50 ? { b50: b.b50 } : {}),
         })),
         dnb: I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].pid),
         bowling: Object.entries(I.bowlers).sort((a, b) => a[1].order - b[1].order).map(([idx, s]) => ({
@@ -1374,6 +1557,7 @@
     teamsOf, clubEra, leagueKind, ligaClubs, ligaDivisions, ligaMoves, cupRanking, clubRanking, clubOrder, startClubSeason, clubSeasonComps, combinedRace, seasonDone, LIGA_CLUBS,
     buildMatch, simulateFixture, pendingFixtures, fmtStats, blankStats: blank,
     impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf, raceFor, seasonRecords,
+    allTimeRecords, brokenRecords, trophyCabinet, seasonStory, RECORD_ORDER,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketComp = api;

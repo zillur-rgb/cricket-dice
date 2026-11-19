@@ -243,7 +243,8 @@
       state.screen = m.result ? 'result' : m.innings.length === 1 ? 'break' : 'superover';
       if (state.screen === 'result' && state.ctx && !state.ctx.recorded) {
         state.ctx.recorded = true;
-        C.recordMatch(state.db, state.ctx.compId, state.ctx.fixtureId, m, 'played');
+        recordWithCheck(state.ctx.compId, state.ctx.fixtureId, m, 'played');
+        setTimeout(showRecordPopup, 1200);
         state.saveMsg = 'Saving…';
         save().then(() => { if (state.screen === 'result') render(); });
       }
@@ -270,8 +271,10 @@
     const m = state.match;
     if (inn().done || E.needsBowler(m)) return;
     const batMode = state.bat, bowlPlan = state.bowl;
+    state.overSum = null;
     const ev = E.bowlBall(m, batMode, bowlPlan);
     state.last = { ev, pos: needlePos(ev), batMode, bowlPlan };
+    if (ev.endOfOver && !inn().done) makeOverSummary(ev);
     state.preview = false;
 
     if (state.quick) { advance(); return; }
@@ -303,9 +306,10 @@
         E.setBowler(m, E.cpuChooseBowler(m));
       }
       const batMode = E.cpuBatMode(m), bowlPlan = E.cpuBowlPlan(m);
+      state.overSum = null;
       const ev = E.bowlBall(m, batMode, bowlPlan);
       last = { ev, pos: needlePos(ev), batMode, bowlPlan };
-      if (!untilEndOfInnings && ev.endOfOver) break;
+      if (!untilEndOfInnings && ev.endOfOver) { if (!inn().done) makeOverSummary(ev); break; }
     }
     if (last) { state.last = last; state.preview = false; }
     if (m.currentInnings === startInn) advance();
@@ -368,6 +372,7 @@
     });
     app.querySelectorAll('.js-quick').forEach(q => q.onchange = () => { state.quick = q.checked; app.querySelectorAll('.js-quick').forEach(x => { x.checked = q.checked; }); });
     bindPlayerLinks(app);
+    animateWp(app);
     const i = inn();
     if (i.bowler === null && !i.done) setButtonsDisabled(true);
   }
@@ -433,6 +438,81 @@
     </div>`;
   }
 
+  // ---------- Win probability ----------
+  // Recomputed once per ball (the engine plays the rest of the match 250 times from here)
+  function wpKey(m) {
+    const i = inn();
+    return `${m.teams[0].id || m.teams[0].name}|${m.teams[1].id || m.teams[1].name}|${m.innings.length}|${i.balls}|${i.runs}|${i.wkts}|${i.log.length}|${m.result ? 'r' : ''}`;
+  }
+  function wpNow() {
+    const m = state.match;
+    if (!m || !m.innings.length) return null;
+    const key = wpKey(m);
+    if (state.wp && state.wp.key === key) return state.wp;
+    const same = state.wp && state.wp.match === `${m.teams[0].name}|${m.teams[1].name}`;
+    const p = E.winProbability(m, 250);
+    state.wp = { key, p, prev: same ? state.wp.p : null, match: `${m.teams[0].name}|${m.teams[1].name}`, shown: same ? state.wp.shown : null };
+    return state.wp;
+  }
+  function wpHTML() {
+    const W = wpNow();
+    if (!W) return '';
+    const m = state.match, a = m.teams[0], b = m.teams[1];
+    const pa = Math.round(W.p * 100), pb = 100 - pa;
+    const d = W.prev === null ? 0 : Math.round((W.p - W.prev) * 100);
+    const move = d ? `<span class="wp-move" title="Change since the last ball">▲${Math.abs(d)} ${esc((d > 0 ? a : b).short || (d > 0 ? a : b).name)}</span>` : '';
+    const from = W.shown === null || W.shown === undefined ? pa : Math.round(W.shown * 100);
+    return `<div class="wp" data-wp-to="${pa}">
+      <div class="wp-lbl"><span><span class="dot" style="background:${a.color}"></span>${esc(a.short || a.name)} <b>${pa}%</b></span><span class="wp-title">Win chance ${move}</span><span><b>${pb}%</b> ${esc(b.short || b.name)}<span class="dot" style="background:${b.color}"></span></span></div>
+      <div class="wp-bar" style="background:${b.color}"><div class="wp-a" style="width:${from}%;background:${a.color}"></div><div class="wp-mid"></div></div>
+    </div>`;
+  }
+  // swing the bar from where it was to the new value
+  function animateWp(root) {
+    const el = (root || app).querySelector('.wp'); if (!el) return;
+    const bar = el.querySelector('.wp-a'), to = el.dataset.wpTo;
+    requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.width = to + '%'; }));
+    if (state.wp) state.wp.shown = state.wp.p;
+  }
+
+  // ---------- Over summary ----------
+  function makeOverSummary(ev) {
+    const m = state.match, i = inn();
+    const evs = i.log.filter(e => e.over === ev.over);
+    const runs = evs.reduce((x, e) => x + (e.runs || 0), 0), wk = evs.filter(e => e.type === 'wicket').length;
+    const bIdx = i.lastOverBowler !== null && i.lastOverBowler !== undefined ? i.lastOverBowler : i.bowler;
+    const bs = bIdx !== null && bIdx !== undefined ? i.bowlers[bIdx] : null;
+    const W = wpNow();
+    const startP = state.overStartWp !== undefined && state.overStartWp !== null ? state.overStartWp : null;
+    state.overSum = {
+      over: ev.over + 1, runs, wk, tokens: (i.overLog[i.overLog.length - 1] || []).slice(),
+      bowler: bs ? `${team(i.bowl).players[bIdx].name} ${oversFig(bs.balls)}-${bs.maidens || 0}-${bs.runs}-${bs.wkts}` : '',
+      score: `${team(i.bat).short || team(i.bat).name} ${i.runs}/${i.wkts}`,
+      need: i.target !== null ? `need ${i.target - i.runs} from ${(i.superOver ? 6 : m.overs * 6) - i.balls}` : '',
+      maiden: !!ev.maiden,
+      wp: W ? W.p : null, wpFrom: startP, bat: i.bat,
+    };
+  }
+  function overSummaryHTML() {
+    const S = state.overSum;
+    if (!S) return '';
+    const m = state.match, tA = m.teams[0];
+    const toks = S.tokens.map(t => { const cls = t === '4' ? 't4' : t === '6' ? 't6' : t === 'W' ? 'tW' : (t.startsWith('wd') || t.startsWith('nb')) ? 'tx' : ''; return `<span class="tok sm ${cls}">${esc(t)}</span>`; }).join('');
+    let wp = '';
+    if (S.wp !== null) {
+      const now = Math.round(S.wp * 100);
+      const d = S.wpFrom !== null ? now - Math.round(S.wpFrom * 100) : 0;
+      const tB = m.teams[1];
+      wp = `<div class="os-line">Win chance: ${esc(tA.short || tA.name)} ${now}% · ${esc(tB.short || tB.name)} ${100 - now}%${d ? ` <span class="wp-move">▲${Math.abs(d)} ${esc((d > 0 ? tA : tB).short || (d > 0 ? tA : tB).name)} this over</span>` : ''}</div>`;
+    }
+    return `<div class="over-sum">
+      <div class="os-head"><b>End of over ${S.over}</b><span>${S.runs} run${S.runs === 1 ? '' : 's'}${S.wk ? ` · ${S.wk} wicket${S.wk === 1 ? '' : 's'}` : ''}${S.maiden ? ' · maiden!' : ''}</span></div>
+      <div class="this-over sm">${toks}</div>
+      <div class="os-line">${esc(S.score)}${S.need ? ` · ${esc(S.need)}` : ''}</div>${wp}
+      ${S.bowler ? `<div class="os-line muted">${esc(S.bowler)}</div>` : ''}
+    </div>`;
+  }
+
   function scoreboardHTML() {
     const m = state.match, i = inn(), t = team(i.bat), bt = team(i.bowl);
     const phase = E.phaseOf(m, i);
@@ -464,6 +544,7 @@
       <div class="sb-sub">${sub}</div>
       <div class="sb-vs">vs ${esc(bt.name)}${i.superOver ? ` · scores were level on ${m.innings[0].runs}` : m.innings.length === 2 ? ` · 1st innings ${m.innings[0].runs}/${m.innings[0].wkts}` : ''}</div>
       ${target}
+      ${wpHTML()}
     </div>`;
   }
 
@@ -496,7 +577,7 @@
     } else if (state.last) {
       probs = state.last.ev.probs; pos = state.last.pos; hit = state.last.ev.outcome;
       caption = `<span>End of over</span><span></span>`;
-      flash = flashHTML(state.last.ev);
+      flash = state.overSum ? overSummaryHTML() : flashHTML(state.last.ev);
     } else {
       return `<div class="flash"><div class="small">Choose a bowler to start the over.</div></div>`;
     }
@@ -667,7 +748,7 @@
     const suggested = E.cpuChooseBowler(m);
     const overNo = Math.floor(i.balls / 6) + 1;
     const bt = team(i.bowl);
-    modalCard.innerHTML = `<h2>${teamDot(bt)} ${esc(bt.name)}: over ${overNo}</h2>
+    modalCard.innerHTML = `${overSummaryHTML()}<h2>${teamDot(bt)} ${esc(bt.name)}: over ${overNo}</h2>
       <p class="muted" style="margin:6px 0 0;font-size:14px">Who bowls? Max ${m.maxOversPerBowler} over${m.maxOversPerBowler > 1 ? 's' : ''} each, no one bowls two in a row. Pitch: ${esc(E.PITCHES[m.pitch].label)}.</p>
       <div class="bowler-list">${opts.map(b => {
         const s = i.bowlers[b.idx];
@@ -685,6 +766,7 @@
     modalCard.querySelectorAll('[data-pstats]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.pstats, { back: openBowlerPicker }); });
     modalCard.querySelectorAll('[data-b]').forEach(b => b.onclick = () => {
       E.setBowler(m, Number(b.dataset.b));
+      const W = wpNow(); state.overStartWp = W ? W.p : null;
       modal.hidden = true;
       state.preview = true;
       render();
@@ -711,10 +793,12 @@
         <p class="muted" style="margin:0">${E.oversStr(I.balls)} overs · run rate ${E.runRate(I.runs, I.balls).toFixed(2)}</p>
         ${topPerformers(I)}
         <h2 style="margin-top:8px">${esc(chaser.name)} need ${I.runs + 1} to win</h2>
+        <div class="break-wp">${wpHTML()}</div>
         <button class="primary" id="btn-next">Start the chase</button>
       </div>
       <div class="panel">${scorecardHTML(0)}</div>
     </section>`;
+    animateWp(app);
     document.getElementById('btn-next').onclick = () => beginInnings(1 - I.bat);
   }
 
@@ -1665,6 +1749,22 @@
     return A ? `<div class="panel"><h2 style="margin-top:0">Season awards</h2>${clubSeasonAwardsHTML(A)}</div>` : '';
   }
 
+  // ---------- Season story: headlines about the latest round ----------
+  function storyHTML() {
+    const S = C.seasonStory(state.db);
+    if (!S || !S.items.length) return '';
+    const after = `${esc(S.after.comp)} S${S.after.season} · ${esc(C.STAGE_LABEL[S.after.stage] || S.after.stage)}${S.after.round && !['SF', 'F', 'SF2', 'F2'].includes(S.after.stage) ? ' round ' + S.after.round : ''}`;
+    const li = it => {
+      const r = it.ref || {};
+      const attr = r.match ? `data-match="${r.match}"` : r.pid ? `data-player="${r.pid}"` : r.team ? `data-team="${r.kind || 'cup'}:${r.team}"` : '';
+      return `<li><span class="st-ic">${it.icon}</span><button class="story-line" ${attr}>${esc(it.text)}</button></li>`;
+    };
+    return `<div class="panel story">
+      <div class="inn-title"><h2>Season story</h2><span class="muted" style="font-size:13px">after ${after}</span></div>
+      <ul class="story-list">${S.items.map(li).join('')}</ul>
+    </div>`;
+  }
+
   function renderHome() {
     const db = state.db;
     const all = Object.fromEntries(Object.entries(db.stats).map(([k, v]) => [k, v.all]));
@@ -1681,6 +1781,7 @@
       ${seasonBannerHTML()}
       <div class="comp-grid">${compCardHTML(C.leagueKind(state.db))}${compCardHTML('cup')}</div>
       ${nextUpHTML()}
+      ${storyHTML()}
       ${seasonAwardsHTML()}
       ${rankingPanelHTML()}
       <div class="panel">
@@ -1698,6 +1799,7 @@
     });
     bindHomeBoard(document.getElementById('home-board'));
     bindRankPanel();
+    app.querySelectorAll('.story-line[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
     const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
@@ -2042,6 +2144,43 @@
     if (await save()) showToast(`Season ${comp.season} cancelled. Start it again whenever you like.`);
   }
 
+  // ---------- Records: pop-up when one falls ----------
+  function recordWithCheck(compId, fixtureId, m, mode) {
+    const before = C.allTimeRecords(state.db);
+    C.recordMatch(state.db, compId, fixtureId, m, mode);
+    const comp = state.db.competitions.find(c => c.id === compId);
+    const f = comp && comp.fixtures.find(x => x.id === fixtureId);
+    const after = C.allTimeRecords(state.db);
+    const broken = C.brokenRecords(before, after, f && f.matchId);
+    if (broken.length) state.newRecords = (state.newRecords || []).concat(broken);
+  }
+  function recordHolder(r) {
+    const pm = pmap();
+    if (r.pid && pm[r.pid]) return `<button class="plink" data-player="${r.pid}">${esc(pm[r.pid].name)}</button>`;
+    if (r.team) return chipTeam(r.kind || 'cup', r.team);
+    return '';
+  }
+  function showRecordPopup() {
+    const list = state.newRecords || [];
+    if (!list.length || !modal.hidden) return;
+    state.newRecords = [];
+    const rows = list.map(r => `<li class="nr-row">
+      <div class="cc-kicker">${esc(r.label)}</div>
+      <div class="nr-val">${esc(String(r.val))}</div>
+      <div class="nr-who">${recordHolder(r)}${r.sub ? ` <span class="muted">· ${esc(r.sub)}</span>` : ''}</div>
+      <div class="muted nr-prev">Old record: ${esc(String(r.prev.val))} · ${r.prev.pid && pmap()[r.prev.pid] ? esc(pmap()[r.prev.pid].name) : r.prev.team ? esc(tname(r.prev.kind || 'cup', r.prev.team)) : ''}</div>
+    </li>`).join('');
+    modalCard.dataset.kind = '';
+    modalCard.innerHTML = `<div class="nr-burst">🏆</div>
+      <h2 class="nr-title">${list.length === 1 ? 'Record broken!' : `${list.length} records broken!`}</h2>
+      <ul class="nr-list">${rows}</ul>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:14px"><button class="secondary" id="nr-all">All records</button><button class="primary" id="nr-close">Great</button></div>`;
+    modal.hidden = false;
+    bindPlayerLinks(modalCard);
+    document.getElementById('nr-close').onclick = () => { modal.hidden = true; };
+    document.getElementById('nr-all').onclick = () => { modal.hidden = true; state.screen = 'history'; render(); setTimeout(() => { const el = document.getElementById('records-panel'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 50); };
+  }
+
   function playFixture(comp, fid) {
     if (liveMatchInProgress()) {
       if (state.ctx && state.ctx.fixtureId === fid) { resumeLive(); return; }
@@ -2059,13 +2198,14 @@
       const f = comp.fixtures.find(x => x.id === id);
       if (!f || f.result) continue;
       if (state.ctx && state.ctx.fixtureId === id && liveMatchInProgress()) continue;
-      C.recordMatch(state.db, comp.id, f.id, C.simulateFixture(state.db, comp, f), 'sim');
+      recordWithCheck(comp.id, f.id, C.simulateFixture(state.db, comp, f), 'sim');
     }
     if (comp.status === 'complete') {
       state.compTab[comp.kind] = comp.kind === 'cup' ? 'knockout' : 'playoffs';
       if (comp.summary.playerOfSeries) setTimeout(() => showToast(`Player of the series: ${comp.summary.playerOfSeries.name}`), 2200);
     }
     render();
+    setTimeout(showRecordPopup, 400);
     await save();
   }
 
@@ -2857,6 +2997,39 @@
   }
 
   // ======================= HISTORY =======================
+  // ---------- All-time records and trophy cabinet ----------
+  function recordsPanelHTML() {
+    const R = C.allTimeRecords(state.db);
+    const keys = C.RECORD_ORDER.filter(k => R[k]);
+    if (!keys.length) return '';
+    const card = r => `<div class="rec-card">
+      <div class="cc-kicker">${esc(r.label)}</div>
+      <div class="rec-val">${esc(String(r.val))}</div>
+      <div class="rec-sub">${recordHolder(r)}${r.opp ? ` <span class="muted">v ${esc(tname(r.kind || 'cup', r.opp))}</span>` : ''}${r.sub ? ` <span class="muted">· ${esc(r.sub)}</span>` : ''}</div>
+      ${r.match ? `<div class="rec-sub muted">${esc(r.comp || '')} S${r.season} · <button class="plink" data-match="${r.match}">Scorecard</button></div>` : ''}
+    </div>`;
+    const single = keys.filter(k => !R[k].career), career = keys.filter(k => R[k].career);
+    return `<div class="panel" id="records-panel">
+      <div class="inn-title"><h2>All-time records</h2><span class="muted" style="font-size:13px">every competition match</span></div>
+      <div class="rec-grid">${single.map(k => card(R[k])).join('')}</div>
+      <h3 class="po-h" style="margin-top:18px">Career</h3>
+      <div class="rec-grid">${career.map(k => card(R[k])).join('')}</div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">When a record falls you get a pop-up. Fastest thirty/fifty count the ball the batter got there (older matches: balls faced in the whole innings).</p>
+    </div>`;
+  }
+  function cabinetHTML() {
+    const T = C.trophyCabinet(state.db);
+    if (!T.length) return '';
+    const big = w => w === 'Städtepokal' || w === 'Städteliga' || w === 'Länderliga';
+    const row = t => {
+      const tm = C.teamOf(state.db, t.kind, t.id) || { name: t.id, color: '#888' };
+      const cups = t.items.map(it => `<span class="tc-cup ${big(it.what) ? 'big' : ''}" title="${esc(it.what)} · Season ${it.season}">${big(it.what) ? '🏆' : '🥇'}<small>${esc({ 'Städtepokal': 'Pokal', 'Städteliga': 'Liga', 'Länderliga': 'Länderliga' }[it.what] || it.what)} S${it.season}</small></span>`).join('');
+      return `<li><span class="tchip" data-team="${t.kind}:${t.id}" role="button" tabindex="0"><span class="dot" style="background:${tm.color}"></span>${esc(tm.name)}</span><div class="tc-shelf">${cups}</div></li>`;
+    };
+    return `<div class="panel"><div class="inn-title"><h2>Trophy cabinet</h2><span class="muted" style="font-size:13px">🏆 main titles · 🥇 division titles</span></div>
+      <ul class="tc-list">${T.map(row).join('')}</ul></div>`;
+  }
+
   function renderHistory() {
     const db = state.db, pm = pmap();
     const comps = db.competitions.slice().reverse();
@@ -2899,13 +3072,8 @@
           ${state.store !== 'local' ? '<button class="secondary" id="btn-download">Download history.json</button>' : ''}
           <button class="secondary danger-ghost" id="btn-reset">Reset all history</button>
         </div></div>
-      ${db.matches.length ? `<div class="panel"><div class="records">
-        ${rec('Most career runs', mostR.s.runs, `${mostR.s.mat} matches`, mostR.pid)}
-        ${rec('Most career wickets', mostW.s.wkts, `${mostW.s.mat} matches`, mostW.pid)}
-        ${hs ? rec('Highest score', `${hs.r}${hs.out ? '' : '*'}`, `${hs.b} balls, ${esc(hs.m.compName)}`, hs.pid, hs.m.id) : ''}
-        ${bb ? rec('Best bowling', `${bb.w}/${bb.r}`, esc(bb.m.compName), bb.pid, bb.m.id) : ''}
-        ${Object.keys(champs).length ? `<div class="rec"><div class="cc-kicker">Most titles</div><div class="rec-val small">${Object.entries(champs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t, n]) => `${esc(t)} ${n}`).join(' · ')}</div></div>` : ''}
-      </div></div>` : ''}
+      ${recordsPanelHTML()}
+      ${cabinetHTML()}
       ${comps.length ? comps.map(card).join('') : '<div class="panel"><p class="muted" style="margin:0">No seasons yet. Start the first season from the home page.</p></div>'}
     </section>`;
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
