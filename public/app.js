@@ -1849,18 +1849,17 @@
     return A ? `<div class="panel"><h2 style="margin-top:0">Season awards</h2>${clubSeasonAwardsHTML(A)}</div>` : '';
   }
 
-  // ---------- Season story: headlines about the latest round ----------
+  // ---------- Season story: a news feed, newest 5 headlines ----------
   function storyHTML() {
-    const S = C.seasonStory(state.db);
+    const S = C.seasonStory(state.db, 5);
     if (!S || !S.items.length) return '';
-    const after = `${esc(S.after.comp)} S${S.after.season} · ${esc(C.STAGE_LABEL[S.after.stage] || S.after.stage)}${S.after.round && !['SF', 'F', 'SF2', 'F2'].includes(S.after.stage) ? ' round ' + S.after.round : ''}`;
     const li = it => {
       const r = it.ref || {};
       const attr = r.match ? `data-match="${r.match}"` : r.pid ? `data-player="${r.pid}"` : r.team ? `data-team="${r.kind || 'cup'}:${r.team}"` : '';
-      return `<li><span class="st-ic">${it.icon}</span><button class="story-line" ${attr}>${esc(it.text)}</button></li>`;
+      return `<li><span class="st-ic">${it.icon}</span><div><button class="story-line" ${attr}>${esc(it.text)}</button><div class="st-when">${esc(it.label)}</div></div></li>`;
     };
     return `<div class="panel story">
-      <div class="inn-title"><h2>Season story</h2><span class="muted" style="font-size:13px">after ${after}</span></div>
+      <div class="inn-title"><h2>Season story</h2><span class="muted" style="font-size:13px">latest news</span></div>
       <ul class="story-list">${S.items.map(li).join('')}</ul>
     </div>`;
   }

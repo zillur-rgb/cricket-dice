@@ -1195,24 +1195,47 @@
   }
 
   // ---------------- Season story ----------------
-  // A few headlines about the latest round of the current season (both competitions).
-  function seasonStory(db) {
+  // A news feed for the current season: every round (one round of one competition) adds its best
+  // 3 headlines; the same story (e.g. a club's unbeaten run) is only kept in its newest version.
+  // The feed shows the newest 5.
+  let storyCache = { key: null };
+  function seasonStory(db, limit) {
     let comps;
     if (db.clubs && db.clubs.seasons) comps = clubSeasonComps(db, db.clubs.seasons);
     else comps = ['league', 'liga', 'cup'].map(k => activeComp(db, k) || lastComp(db, k)).filter(Boolean);
     const ids = new Set(comps.map(c => c.id));
     const ms = db.matches.filter(m => ids.has(m.compId)).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     if (!ms.length) return null;
-    const lastM = ms[ms.length - 1];
+    const key = db.matches.length + ':' + ms[ms.length - 1].id + ':' + (limit || 5);
+    if (storyCache.db === db && storyCache.key === key) return storyCache.out;
     const blockKey = m => `${m.compId}|${m.stage}|${m.round || ''}`;
-    const block = ms.filter(m => blockKey(m) === blockKey(lastM));
-    const comp = comps.find(c => c.id === lastM.compId);
+    const blocks = [];
+    for (const m of ms) { const k = blockKey(m); let b = blocks.find(x => x.key === k); if (!b) blocks.push(b = { key: k, ms: [] }); b.ms.push(m); }
+    blocks.sort((a, b) => a.ms[a.ms.length - 1].date.localeCompare(b.ms[b.ms.length - 1].date));
+    const feed = new Map();     // story key -> item (newest wins)
+    let order = 0;
+    for (const b of blocks) {
+      const lastDate = b.ms[b.ms.length - 1].date || '';
+      const view = Object.assign({}, db, { matches: db.matches.filter(m => (m.date || '') <= lastDate) });
+      const items = storyItems(view, comps, ms.filter(m => (m.date || '') <= lastDate), b.ms).sort((x, y) => y.w - x.w).slice(0, 3);
+      const m0 = b.ms[0];
+      const label = `${m0.compName} · ${STAGE_LABEL[m0.stage] || m0.stage}${m0.round && ['league', 'group', 'R2'].includes(m0.stage) ? ' round ' + m0.round : ''}`;
+      for (const it of items.slice().reverse()) { feed.delete(it.key); feed.set(it.key, { ...it, label, order: order++ }); }   // strongest of the round ends up first
+    }
+    const items = [...feed.values()].sort((a, b) => b.order - a.order).slice(0, limit || 5);
+    const lastM = ms[ms.length - 1];
+    const out = { items, after: { comp: lastM.compName, season: lastM.season, stage: lastM.stage, round: lastM.round } };
+    storyCache = { db, key, out };
+    return out;
+  }
+  // Headlines for one round (`block`), seen as things stood right after it (`db` holds only the matches up to then)
+  function storyItems(db, comps, ms, block) {
     const kind = m => (m.comp === 'liga' ? 'cup' : m.comp);
     const tn = (m, id) => { const t = teamOf(db, kind(m), id); return t ? t.name : id; };
     const pm = playerMap(db);
     const pn = pid => (pm[pid] ? pm[pid].name : pid);
     const H = [];
-    const add = (w, icon, text, ref) => H.push({ w, icon, text, ref: ref || null });
+    const add = (w, key, icon, text, ref) => H.push({ w, key, icon, text, ref: ref || null });
     const main = m => m.innings.filter(I => !I.superOver);
     const loser = m => m.teams.find(t => t !== m.winner);
     const fixOf = m => { const c = comps.find(x => x.id === m.compId); return c && c.fixtures.find(f => f.matchId === m.id || f.id === m.id); };
@@ -1222,26 +1245,26 @@
       if (!m.winner || !['F', 'SF', 'F2', 'SF2'].includes(m.stage)) continue;
       const f = fixOf(m), d = f && f.div;
       const title = m.comp === 'cup' ? 'the Städtepokal' : m.comp === 'liga' ? (d === 1 ? 'the Städteliga' : `the ${d}. Liga title`) : d === 2 || m.stage === 'F2' ? 'the 2. Liga title' : 'the Länderliga';
-      if (m.stage === 'F' || m.stage === 'F2') add(100, '🏆', `${tn(m, m.winner)} win ${title}, beating ${tn(m, loser(m))} in the final`, { match: m.id });
-      else add(80, '🎟️', `${tn(m, m.winner)} beat ${tn(m, loser(m))} to reach the ${m.comp === 'liga' && d && d > 1 ? d + '. Liga ' : ''}final`, { match: m.id });
+      if (m.stage === 'F' || m.stage === 'F2') add(100, 'ko:' + m.id, '🏆', `${tn(m, m.winner)} win ${title}, beating ${tn(m, loser(m))} in the final`, { match: m.id });
+      else add(80, 'ko:' + m.id, '🎟️', `${tn(m, m.winner)} beat ${tn(m, loser(m))} to reach the ${m.comp === 'liga' && d && d > 1 ? d + '. Liga ' : ''}final`, { match: m.id });
     }
-    // records that fell this round
+    // records that fell in this round
     const recs = allTimeRecords(db), blockIds = new Set(block.map(m => m.id));
     for (const k of RECORD_ORDER) {
       const r = recs[k];
       if (!r || r.career || !blockIds.has(r.match)) continue;
       const who = r.pid ? pn(r.pid) : r.team ? tn({ comp: r.kind === 'cup' ? 'cup' : r.kind }, r.team) : '';
-      add(90, '📜', `New record · ${r.label.toLowerCase()}: ${who} (${r.val})`, { match: r.match });
+      add(90, 'rec:' + k + ':' + r.match, '📜', `New record · ${r.label.toLowerCase()}: ${who} (${r.val})`, { match: r.match });
     }
-    // standout performances
+    // standout performances of the round
     let bat = null, bowl = null;
     for (const m of block) for (const [k, I] of main(m).entries()) {
       const opp = main(m)[1 - k];
       for (const b of I.batting) if (!bat || b.r > bat.b.r || (b.r === bat.b.r && b.b < bat.b.b)) bat = { b, m, opp: opp && opp.team };
       if (opp) for (const w of I.bowling) if (!bowl || w.w > bowl.w.w || (w.w === bowl.w.w && w.r < bowl.w.r)) bowl = { w, m, opp: I.team };
     }
-    if (bat && bat.b.r >= 30) add(65, '💥', `${pn(bat.b.pid)} smashes ${bat.b.r}${bat.b.out ? '' : '*'} off ${bat.b.b} balls against ${tn(bat.m, bat.opp)}`, { pid: bat.b.pid });
-    if (bowl && bowl.w.w >= 3) add(64, '🎯', `${pn(bowl.w.pid)} takes ${bowl.w.w}/${bowl.w.r} against ${tn(bowl.m, bowl.opp)}`, { pid: bowl.w.pid });
+    if (bat && bat.b.r >= 30) add(65, 'bat:' + bat.m.id, '💥', `${pn(bat.b.pid)} smashes ${bat.b.r}${bat.b.out ? '' : '*'} off ${bat.b.b} balls against ${tn(bat.m, bat.opp)}`, { pid: bat.b.pid });
+    if (bowl && bowl.w.w >= 3) add(64, 'bowl:' + bowl.m.id, '🎯', `${pn(bowl.w.pid)} takes ${bowl.w.w}/${bowl.w.r} against ${tn(bowl.m, bowl.opp)}`, { pid: bowl.w.pid });
     // closest finish and biggest win of the round
     const margin = m => {
       const [a, b] = main(m);
@@ -1253,25 +1276,23 @@
     };
     const withM = block.map(m => ({ m, g: margin(m) })).filter(x => x.g);
     const close = withM.slice().sort((x, y) => x.g.close - y.g.close)[0];
-    if (close && close.g.close <= 3) add(70, '😮', `Thriller: ${tn(close.m, close.m.winner)} edge ${tn(close.m, loser(close.m))} ${close.g.txt}`, { match: close.m.id });
+    if (close && close.g.close <= 3) add(70, 'close:' + close.m.id, '😮', `Thriller: ${tn(close.m, close.m.winner)} edge ${tn(close.m, loser(close.m))} ${close.g.txt}`, { match: close.m.id });
     const big = withM.slice().sort((x, y) => y.g.big - x.g.big)[0];
-    if (big && big !== close && big.g.big >= 20) add(50, '🔨', `${tn(big.m, big.m.winner)} thrash ${tn(big.m, loser(big.m))} ${big.g.txt}`, { match: big.m.id });
-    // streaks over the whole season (both competitions)
+    if (big && big !== close && big.g.big >= 20) add(50, 'big:' + big.m.id, '🔨', `${tn(big.m, big.m.winner)} thrash ${tn(big.m, loser(big.m))} ${big.g.txt}`, { match: big.m.id });
+    // streaks over the season so far (both competitions), for clubs that played in this round
     const res = {};
     for (const m of ms) for (const t of m.teams) (res[t] = res[t] || []).push({ w: m.winner === t, m });
     const inBlock = new Set(block.flatMap(m => m.teams));
-    const streakLines = [];
     for (const [t, list] of Object.entries(res)) {
       if (!inBlock.has(t)) continue;
       const m = list[list.length - 1].m, w = list.filter(x => x.w).length, l = list.length - w;
       let run = 0; const lastW = list[list.length - 1].w;
       for (let k = list.length - 1; k >= 0 && list[k].w === lastW; k--) run++;
-      if (list.length >= 3 && l === 0) streakLines.push([60 + w, '🛡️', `${tn(m, t)} stay unbeaten (${w}–0)`, { team: t, kind: kind(m) }]);
-      else if (list.length >= 4 && w === 0) streakLines.push([47 + l, '🥶', `${tn(m, t)} still without a win (0–${l})`, { team: t, kind: kind(m) }]);
-      else if (lastW && run >= 3) streakLines.push([45 + run, '📈', `${tn(m, t)} win ${run} in a row`, { team: t, kind: kind(m) }]);
-      else if (!lastW && run >= 3) streakLines.push([44 + run, '📉', `${tn(m, t)} lose again: ${run} defeats in a row`, { team: t, kind: kind(m) }]);
+      if (list.length >= 3 && l === 0) add(52 + w, 'streak:' + t, '🛡️', `${tn(m, t)} stay unbeaten (${w}–0)`, { team: t, kind: kind(m) });
+      else if (list.length >= 4 && w === 0) add(44 + l, 'streak:' + t, '🥶', `${tn(m, t)} still without a win (0–${l})`, { team: t, kind: kind(m) });
+      else if (lastW && run >= 3) add(44 + run, 'streak:' + t, '📈', `${tn(m, t)} win ${run} in a row`, { team: t, kind: kind(m) });
+      else if (!lastW && run >= 3) add(42 + run, 'streak:' + t, '📉', `${tn(m, t)} lose again: ${run} defeats in a row`, { team: t, kind: kind(m) });
     }
-    streakLines.sort((a, b) => b[0] - a[0]).slice(0, 3).forEach(x => add(...x));
     // collapses
     const collapsed = I => I.wkts >= 5 || (I.runs <= 30 && I.wkts >= 4);
     let col = null;
@@ -1279,25 +1300,39 @@
     if (col) {
       const prev = ms.filter(x => x.date < col.m.date && x.teams.includes(col.I.team)).pop();
       const again = prev && main(prev).some(I => I.team === col.I.team && collapsed(I));
-      add(again ? 58 : 48, '💀', `${tn(col.m, col.I.team)} collapse${again ? ' again' : ''}: ${col.I.runs}/${col.I.wkts}`, { match: col.m.id });
+      add(again ? 58 : 48, 'col:' + col.m.id, '💀', `${tn(col.m, col.I.team)} collapse${again ? ' again' : ''}: ${col.I.runs}/${col.I.wkts}`, { match: col.m.id });
     }
-    // players in form (🔥 / ❄️)
+    // players on a run: judged on exactly the 3 innings that are shown
     const blockPlayers = new Set(block.flatMap(m => main(m).flatMap(I => I.batting.map(b => b.pid).concat(I.bowling.map(b => b.pid)))));
-    const last3 = (pid, f) => db.matches.filter(m => m.compId && main(m).some(I => f(I).some(x => x.pid === pid))).slice(-3).map(m => { for (const I of main(m)) { const x = f(I).find(y => y.pid === pid); if (x) return x; } return null; });
-    const formed = [...blockPlayers].map(pid => ({ pid, f: formOf(db, pid) }));
-    formed.filter(x => x.f.bat >= 3).sort((a, b) => b.f.bat - a.f.bat).slice(0, 2).forEach(x => add(55 + x.f.bat, '🔥', `${pn(x.pid)} on a hot streak: ${last3(x.pid, I => I.batting).map(b => b.r + (b.out ? '' : '*')).join(', ')}`, { pid: x.pid }));
-    formed.filter(x => x.f.bowl >= 3).sort((a, b) => b.f.bowl - a.f.bowl).slice(0, 1).forEach(x => add(54 + x.f.bowl, '🔥', `${pn(x.pid)} in red-hot bowling form: ${last3(x.pid, I => I.bowling).map(w => `${w.w}/${w.r}`).join(', ')}`, { pid: x.pid }));
-    formed.filter(x => x.f.bat <= -3).sort((a, b) => a.f.bat - b.f.bat).slice(0, 1).forEach(x => add(35, '❄️', `${pn(x.pid)} out of touch: ${last3(x.pid, I => I.batting).map(b => b.r + (b.out ? '' : '*')).join(', ')}`, { pid: x.pid }));
-    // club ranking movers
+    const comp = db.matches.filter(m => m.compId);
+    const last3 = (pid, f) => {
+      const out = [];
+      for (let k = comp.length - 1; k >= 0 && out.length < 3; k--) for (const I of main(comp[k])) { const x = f(I).find(y => y.pid === pid); if (x) { out.unshift(x); break; } }
+      return out;
+    };
+    const hot = [], hotBowl = [], cold = [];
+    for (const pid of blockPlayers) {
+      const b3 = last3(pid, I => I.batting);
+      if (b3.length === 3) {
+        const sum = b3.reduce((x, y) => x + y.r, 0);
+        if (sum >= 70 && b3.every(x => x.r >= 15)) hot.push({ pid, sum, b3 });
+        else if (pm[pid] && pm[pid].role === 'bat' && b3.every(x => x.r <= 5 && x.out)) cold.push({ pid, b3 });
+      }
+      const w3 = last3(pid, I => I.bowling);
+      if (w3.length === 3 && w3.reduce((x, y) => x + y.w, 0) >= 6 && w3.every(x => x.w >= 1)) hotBowl.push({ pid, w: w3.reduce((x, y) => x + y.w, 0), w3 });
+    }
+    hot.sort((a, b) => b.sum - a.sum).slice(0, 2).forEach(x => add(56 + Math.min(10, (x.sum - 70) / 5), 'hot:' + x.pid, '🔥', `${pn(x.pid)} on a hot streak: ${x.b3.map(b => b.r + (b.out ? '' : '*')).join(', ')}`, { pid: x.pid }));
+    hotBowl.sort((a, b) => b.w - a.w).slice(0, 1).forEach(x => add(55 + x.w, 'hotb:' + x.pid, '🔥', `${pn(x.pid)} in red-hot bowling form: ${x.w3.map(w => `${w.w}/${w.r}`).join(', ')}`, { pid: x.pid }));
+    cold.slice(0, 1).forEach(x => add(36, 'cold:' + x.pid, '❄️', `${pn(x.pid)} out of touch: ${x.b3.map(b => b.r).join(', ')}`, { pid: x.pid }));
+    // club ranking movers in this round
     if (clubEra(db)) {
       const rk = clubRanking(db).rows;
       const up = rk.slice().sort((a, b) => b.change - a.change)[0], down = rk.slice().sort((a, b) => a.change - b.change)[0];
       const cn = id => { const t = teamOf(db, 'cup', id); return t ? t.name : id; };
-      if (up && up.change >= 3) add(40, '⬆️', `${cn(up.id)} climb ${up.change} places to #${up.rank} in the club ranking`, { team: up.id, kind: 'cup' });
-      if (down && down.change <= -3) add(38, '⬇️', `${cn(down.id)} drop ${-down.change} places to #${down.rank} in the club ranking`, { team: down.id, kind: 'cup' });
+      if (up && up.change >= 3) add(40, 'rank:' + up.id, '⬆️', `${cn(up.id)} climb ${up.change} places to #${up.rank} in the club ranking`, { team: up.id, kind: 'cup' });
+      if (down && down.change <= -3) add(38, 'rank:' + down.id, '⬇️', `${cn(down.id)} drop ${-down.change} places to #${down.rank} in the club ranking`, { team: down.id, kind: 'cup' });
     }
-    const items = H.sort((a, b) => b.w - a.w).slice(0, 7);
-    return { items, after: { comp: comp ? comp.name : lastM.compName, season: lastM.season, stage: lastM.stage, round: lastM.round } };
+    return H;
   }
 
   // ---------------- Season records ----------------
