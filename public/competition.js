@@ -375,6 +375,7 @@
     const clubs = teamsOf(db, 'cup').map(t => t.id);
     const pts = Object.fromEntries(clubs.map(id => [id, RANK_START]));
     const played = Object.fromEntries(clubs.map(id => [id, 0]));
+    const lastGame = {};                                          // points won or lost in each club's latest match
     const order = () => clubs.slice().sort((a, b) => pts[b] - pts[a] || played[b] - played[a] || a.localeCompare(b));
     const ms = db.matches.filter(m => (m.comp === 'cup' || m.comp === 'liga') && !m.friendly && (!before || (m.date || '') < before))
       .slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -388,12 +389,14 @@
       const sx = m.winner === x ? 1 : m.winner === y ? 0 : 0.5;
       const d = (RANK_K[m.stage] || 30) * (sx === 0.5 ? 1 : matchMargin(m)) * (sx - ex);
       pts[x] += d; pts[y] -= d; played[x]++; played[y]++;
+      lastGame[x] = { d, won: sx === 1, tie: sx === 0.5, vs: y, comp: m.compName };
+      lastGame[y] = { d: -d, won: sx === 0, tie: sx === 0.5, vs: x, comp: m.compName };
       last = m;
     }
     const now = order();
     const rows = now.map((id, i) => {
       const was = startOrder.indexOf(id) + 1;
-      return { id, rank: i + 1, pts: Math.round(pts[id]), played: played[id], was, change: was - (i + 1) };
+      return { id, rank: i + 1, pts: Math.round(pts[id]), played: played[id], was, change: was - (i + 1), last: lastGame[id] || null };
     });
     const round = last ? { comp: last.compName, season: last.season, stage: last.stage, round: last.round } : null;
     return { rows, byId: Object.fromEntries(rows.map(r => [r.id, r])), round };

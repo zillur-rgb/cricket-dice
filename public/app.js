@@ -2681,10 +2681,18 @@
     const r = rankInfo().byId[id];
     return r ? `<span class="rk" title="Club ranking: ${r.pts} pts">#${r.rank}${rankMove(r)}</span>` : '';
   }
+  // points won or lost in the club's latest match
+  function lastGameHTML(r) {
+    const L = r.last;
+    if (!L) return '<span class="rk-last muted">–</span>';
+    const v = Math.round(L.d);
+    const res = L.tie ? 'tied with' : L.won ? 'beat' : 'lost to';
+    return `<span class="rk-last num ${v > 0 ? 'up' : v < 0 ? 'down' : ''}" title="Last game: ${res} ${esc(tname('cup', L.vs))} (${esc(L.comp)})">${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v)}</span>`;
+  }
   function rankingRowsHTML(rows) {
     return rows.map(r => `<li><span class="rk-pos num">${r.rank}</span>${rankMove(r)}
       <span class="tchip rk-club" data-team="cup:${r.id}" role="button" tabindex="0"><span class="dot" style="background:${tcolor('cup', r.id)}"></span>${esc(tname('cup', r.id))}</span>
-      <span class="num rk-pts">${r.pts}<small> pts</small></span><span class="muted num rk-pl">${r.played}</span></li>`).join('');
+      <span class="num rk-pts">${r.pts}<small> pts</small></span>${lastGameHTML(r)}<span class="muted num rk-pl">${r.played}</span></li>`).join('');
   }
   function rankingPanelHTML() {
     const R = rankInfo();
@@ -2693,8 +2701,8 @@
     const since = R.round ? `Arrows: change since the start of the current round (${esc(R.round.comp)} S${R.round.season} · ${esc(C.STAGE_LABEL[R.round.stage] || R.round.stage)}${R.round.round ? ' round ' + R.round.round : ''}).` : 'No matches played yet.';
     return `<div class="panel" id="rank-panel">
       <div class="inn-title"><h2>Club ranking</h2><span class="muted" style="font-size:13px">Städteliga + Städtepokal</span></div>
-      <ol class="rank-list"><li class="rk-head"><span>#</span><span></span><span>Club</span><span>Points</span><span>Pl</span></li>${rankingRowsHTML(rows)}</ol>
-      <p class="muted" style="font-size:12px;margin:8px 0 0">${since} Every club started at 1000. A win takes points from the loser: more against a stronger club, for a big win, and in the semifinals and finals.</p>
+      <ol class="rank-list"><li class="rk-head"><span>#</span><span></span><span>Club</span><span>Points</span><span title="Points won or lost in the last game">Last</span><span>Pl</span></li>${rankingRowsHTML(rows)}</ol>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">${since} Last: points won or lost in the club's latest match. Every club started at 1000. A win takes points from the loser: more against a stronger club, for a big win, and in the semifinals and finals.</p>
       <div style="margin-top:10px"><button class="secondary" id="btn-rank-all">${open ? 'Show top 5' : `All ${R.rows.length} clubs →`}</button></div>
     </div>`;
   }
@@ -2803,7 +2811,7 @@
   }
 
   function teamHistoryHTML(pid) {
-    const rows = ['liga', 'cup', 'league'].filter(k => state.db.competitions.some(c => c.kind === k)).map(kind => {
+    const rows = (C.clubEra(state.db) ? ['liga', 'cup'] : ['liga', 'cup', 'league']).filter(k => state.db.competitions.some(c => c.kind === k)).map(kind => {
       const list = state.db.competitions.filter(c => c.kind === kind).map(c => {
         const t = C.squadsFor(state.db, c).find(x => x.players.includes(pid));
         return `S${c.season} ${t ? esc(t.short || t.name) : '–'}`;
@@ -3061,7 +3069,7 @@
       : '<div class="form-line muted">Form: steady (no bonus or penalty)</div>';
     // Städteliga rows once the club era started; the old Länderliga only if the player has matches in it
     const showLiga = C.clubEra(state.db);
-    const hasOld = (st.league && st.league.mat > 0) || (!showLiga);
+    const hasOld = !showLiga;       // in the club era the old Länderliga isn't shown on the player card
     const oldLbl = showLiga ? 'Länderliga (old)' : 'Länderliga';
     modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
       <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
