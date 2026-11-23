@@ -989,6 +989,7 @@
   // Single-match records from every competition match, plus career records.
   // Each record has a `score` (higher = better) so a new record is simply a higher score.
   function allTimeRecords(db) {
+    const pm = playerMap(db);
     const R = {};
     const put = (key, label, score, data) => { if (!R[key] || score > R[key].score) R[key] = { key, label, score, ...data }; };
     const kindOf = m => (m.comp === 'liga' ? 'cup' : m.comp);
@@ -1008,6 +1009,9 @@
             if (balls) put('fast' + n, n === 50 ? 'Fastest fifty' : 'Fastest thirty', -balls * 1000 + b.r, { ...base, val: `${balls} balls`, pid: b.pid, team: I.team, sub: `${b.r}${b.out ? '' : '*'} in the innings` });
           }
           if (b.s6) put('sixesInn', 'Most sixes in an innings', b.s6 * 1000 + b.r, { ...base, val: b.s6, pid: b.pid, team: I.team, sub: `${b.r}${b.out ? '' : '*'} (${b.b})` });
+        }
+        for (const p of I.parts || []) if (p.p.length === 2) {
+          put('partnership', 'Highest partnership', p.r * 1000 - p.b, { ...base, val: `${p.r}${p.no ? '*' : ''} (${p.b})`, pid: p.p[0], pid2: p.p[1], team: I.team });
         }
         const opp = main[1 - k];
         for (const w of I.bowling) put('bestBowl', 'Best bowling', w.w * 1000 - w.r, { ...base, val: `${w.w}/${w.r}`, pid: w.pid, team: opp ? opp.team : null, sub: `${E.oversStr(w.balls)} ov` });
@@ -1031,7 +1035,7 @@
     }
     return R;
   }
-  const RECORD_ORDER = ['highTotal', 'highChase', 'lowTotal', 'winRuns', 'winBalls', 'topScore', 'fast50', 'fast30', 'sixesInn', 'bestBowl', 'careerRuns', 'careerWkts', 'careerSixes', 'careerPom'];
+  const RECORD_ORDER = ['highTotal', 'highChase', 'lowTotal', 'winRuns', 'winBalls', 'topScore', 'partnership', 'fast50', 'fast30', 'sixesInn', 'bestBowl', 'careerRuns', 'careerWkts', 'careerSixes', 'careerPom'];
   // Records that a new match broke: a single-match record now held by that match, or a career record with a new holder
   function brokenRecords(before, after, matchId) {
     const out = [];
@@ -1059,6 +1063,124 @@
     }
     const weight = it => (it.what === 'Städtepokal' || it.what === 'Städteliga' || it.what === 'Länderliga' ? 10 : 3);
     return Object.values(T).map(t => ({ ...t, score: t.items.reduce((s, it) => s + weight(it), 0) })).sort((a, b) => b.score - a.score || b.items.length - a.items.length);
+  }
+
+  // ---------------- Derbies ----------------
+  const DERBIES = [
+    ['hamburg', 'bremen', 'Nordderby'], ['koeln', 'duesseldorf', 'Rheinderby'], ['dortmund', 'koeln', 'NRW-Derby'],
+    ['muenchen', 'nuernberg', 'Bayern-Derby'], ['leipzig', 'dresden', 'Sachsenderby'], ['frankfurt', 'mainz', 'Rhein-Main-Derby'],
+    ['stuttgart', 'mannheim', 'Südwest-Derby'], ['berlin', 'potsdam', 'Hauptstadtderby'], ['rostock', 'kiel', 'Ostseederby'],
+    ['magdeburg', 'erfurt', 'Mitteldeutsches Derby'], ['hannover', 'bremen', 'Niedersachsen-Derby'], ['saarbruecken', 'mainz', 'Saar-Pfalz-Derby'],
+  ];
+  function derbyOf(a, b) {
+    const d = DERBIES.find(([x, y]) => (x === a && y === b) || (x === b && y === a));
+    return d ? d[2] : null;
+  }
+  // all Städteliga/Städtepokal matches between two clubs
+  function headToHead(db, a, b) {
+    const ms = db.matches.filter(m => (m.comp === 'cup' || m.comp === 'liga') && m.teams.includes(a) && m.teams.includes(b));
+    return { played: ms.length, a: ms.filter(m => m.winner === a).length, b: ms.filter(m => m.winner === b).length, last: ms[ms.length - 1] || null };
+  }
+
+  // ---------------- Team of the Round ----------------
+  // After each round of the Städteliga (all three divisions) and each Städtepokal round:
+  // the best 6 by Player of the Match points: 2 batters, 2 all-rounders, 2 bowlers.
+  function roundsOf(db, comp) {
+    const out = [];
+    const key = f => (['league', 'group', 'R2'].includes(f.stage) ? `${f.stage}|${f.round}` : f.stage);
+    for (const f of comp.fixtures) { const k = key(f); let r = out.find(x => x.key === k); if (!r) out.push(r = { key: k, stage: f.stage, round: f.round, fx: [] }); r.fx.push(f); }
+    const lbl = r => r.stage === 'league' ? `Round ${r.round}` : r.stage === 'group' ? `Group matchday ${r.round}` : r.stage === 'R2' ? `Second round, round ${r.round}` : (STAGE_LABEL[r.stage] || r.stage);
+    return out.map(r => ({ ...r, done: r.fx.every(f => f.result), label: lbl(r) }));
+  }
+  function pickSix(db, race) {
+    const pm = playerMap(db), team = [];
+    for (const role of ['bat', 'ar', 'bowl']) team.push(...race.filter(x => pm[x.pid] && pm[x.pid].role === role).slice(0, 2));
+    for (const x of race) { if (team.length >= 6) break; if (!team.includes(x)) team.push(x); }
+    const ro = { bat: 0, ar: 1, bowl: 2 };
+    return team.sort((a, b) => ro[pm[a.pid].role] - ro[pm[b.pid].role] || b.points - a.points);
+  }
+  let totrCache = { db: null, n: -1, map: {} };
+  function teamOfRound(db, comp, roundKey) {
+    const ck = db.matches.length + ':' + comp.id + ':' + roundKey;
+    if (totrCache.db !== db || totrCache.n !== db.matches.length) totrCache = { db, n: db.matches.length, map: {} };
+    if (ck in totrCache.map) return totrCache.map[ck];
+    const r = roundsOf(db, comp).find(x => x.key === roundKey);
+    if (!r || !r.done) return (totrCache.map[ck] = null);
+    const ids = new Set(r.fx.map(f => f.matchId));
+    const ms = db.matches.filter(m => ids.has(m.id));
+    const clubOf = {};
+    for (const t of squadsFor(db, comp)) for (const pid of t.players) clubOf[pid] = t.id;
+    const players = pickSix(db, raceOf(db, ms)).map(x => ({ ...x, club: clubOf[x.pid] }));
+    return (totrCache.map[ck] = { comp, round: r, players, star: players.slice().sort((a, b) => b.points - a.points)[0] || null });
+  }
+  // how often each player made a Team of the Round
+  function totrCounts(db) {
+    const out = {};
+    for (const c of db.competitions.filter(x => x.kind === 'liga' || x.kind === 'cup')) for (const r of roundsOf(db, c)) {
+      if (!r.done) continue;
+      const T = teamOfRound(db, c, r.key); if (!T) continue;
+      for (const p of T.players) out[p.pid] = (out[p.pid] || 0) + 1;
+    }
+    return out;
+  }
+
+  // ---------------- Match report ----------------
+  // A short newspaper-style report written from the scorecard.
+  function matchReport(db, m) {
+    const pm = playerMap(db), kind = m.comp === 'liga' ? 'cup' : m.comp;
+    const tn = id => { const t = teamOf(db, kind, id); return t ? t.name : id; };
+    const pn = pid => (pm[pid] ? pm[pid].name : pid);
+    const main = m.innings.filter(I => !I.superOver);
+    if (main.length < 2) return null;
+    const [a, b] = main;
+    const derby = derbyOf(m.teams[0], m.teams[1]);
+    const pick = (arr, seed) => arr[Math.abs([...String(m.id + seed)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)) % arr.length];
+    const topBat = I => I.batting.slice().sort((x, y) => y.r - x.r || x.b - y.b)[0];
+    const topBowl = I => I.bowling.slice().sort((x, y) => y.w - x.w || x.r - y.r)[0];
+    const fig = w => `${w.w}/${w.r}`;
+    const sc = (bb) => `${bb.r}${bb.out ? '' : '*'} off ${bb.b}`;
+    if (!m.winner) {
+      return { headline: `${derby ? derby + ': ' : ''}${tn(a.team)} and ${tn(b.team)} can't be separated`, body: `Both sides finished on ${a.runs}. ${pn(topBat(a).pid)} top-scored with ${sc(topBat(a))} for ${tn(a.team)}.` };
+    }
+    const W = m.winner, L = m.teams.find(t => t !== W);
+    const wInn = main.find(I => I.team === W), lInn = main.find(I => I.team === L);
+    const so = m.superOvers && m.superOvers.length;
+    let how, margin;
+    if (so) { how = 'super'; margin = 'in a Super Over'; }
+    else if (a.runs === b.runs) { how = 'super'; margin = 'on the tie-break'; }
+    else if (a.team === W) { const d = a.runs - b.runs; how = d >= 25 ? 'big' : d <= 5 ? 'close' : 'normal'; margin = `by ${d} run${d === 1 ? '' : 's'}`; }
+    else { const left = (m.overs || 5) * 6 - b.balls; how = left >= 10 ? 'big' : left <= 1 ? 'close' : 'normal'; margin = left === 0 ? 'off the last ball' : `with ${left} ball${left === 1 ? '' : 's'} to spare`; }
+    const hero = m.motm, heroBat = [a, b].flatMap(I => I.batting).find(x => x.pid === hero), heroBowl = [a, b].flatMap(I => I.bowling).find(x => x.pid === hero);
+    const hb = heroBat && heroBat.r >= 20 ? `${heroBat.r}${heroBat.out ? '' : '*'}` : '', hw = heroBowl && heroBowl.w >= 2 ? fig(heroBowl) : '';
+    const heroLine = hb && hw ? `${pn(hero)}'s ${hb} and ${hw}` : hb || hw ? `${pn(hero)}'s ${hb || hw}` : pn(hero);
+    const verb = { big: ['thrash', 'crush', 'cruise past', 'brush aside'], close: ['edge', 'squeeze past', 'pip', 'survive against'], normal: ['beat', 'see off', 'get the better of', 'defeat'], super: ['beat', 'edge'] }[how];
+    const headline = `${derby ? derby + ': ' : ''}${heroLine} ${how === 'close' || how === 'super' ? 'decides it as' : 'leads the way as'} ${tn(W)} ${pick(verb, 'v')} ${tn(L)}`;
+    const s = [];
+    const tb = topBat(a), tw = topBowl(b);
+    s.push(`${tn(a.team)} made ${a.runs}/${a.wkts}${tb && tb.r >= 15 ? `, ${pn(tb.pid)} top-scoring with ${sc(tb)}` : ''}${tw && tw.w >= 2 ? ` while ${pn(tw.pid)} took ${fig(tw)}` : ''}.`);
+    const cb = topBat(b), cw = topBowl(a);
+    if (b.team === W && a.runs !== b.runs && !so) s.push(`${tn(b.team)} chased it down ${margin}${cb && cb.r >= 15 ? `, led by ${pn(cb.pid)} (${sc(cb)})` : ''}.`);
+    else if (b.team === W) s.push(`${tn(b.team)} finished level on ${b.runs} and won ${margin}.`);
+    else s.push(`In reply ${tn(b.team)} ${so || a.runs === b.runs ? `finished level and lost ${margin}` : `reached ${b.runs}/${b.wkts}`}${cb && cb.r >= 15 ? ` despite ${pn(cb.pid)}'s ${cb.r}${cb.out ? '' : '*'}` : ''}${cw && cw.w >= 2 ? `, with ${pn(cw.pid)} taking ${fig(cw)}` : ''}.`);
+    const best = (wInn.parts || []).slice().sort((x, y) => y.r - x.r)[0];
+    if (best && best.r >= 25 && best.p.length === 2) s.push(`The key stand: ${pn(best.p[0])} and ${pn(best.p[1])} put on ${best.r} in ${best.b} balls.`);
+    if (derby) {
+      const h = headToHead(db, W, L);
+      s.push(h.a === h.b ? `The ${derby} is level at ${h.a}–${h.b}.` : `${tn(h.a > h.b ? W : L)} lead the ${derby} ${Math.max(h.a, h.b)}–${Math.min(h.a, h.b)}.`);
+    }
+    return { headline, body: s.join(' ') };
+  }
+
+  // ---------------- Batter v bowler ----------------
+  function playerHeadToHead(db, pid) {
+    const asBat = {}, asBowl = {};
+    let n = 0;
+    for (const m of db.matches) for (const I of m.innings) for (const [bat, bowl, r, b, o] of I.vs || []) {
+      if (bat === pid) { const x = asBat[bowl] || (asBat[bowl] = { r: 0, b: 0, o: 0 }); x.r += r; x.b += b; x.o += o; n++; }
+      if (bowl === pid) { const x = asBowl[bat] || (asBowl[bat] = { r: 0, b: 0, o: 0 }); x.r += r; x.b += b; x.o += o; n++; }
+    }
+    const list = o => Object.entries(o).map(([id, v]) => ({ id, ...v })).sort((x, y) => y.b - x.b || y.o - x.o);
+    return { asBat: list(asBat), asBowl: list(asBowl), any: n > 0 };
   }
 
   // ---------------- Season ceremony ----------------
@@ -1253,7 +1375,7 @@
     for (const k of RECORD_ORDER) {
       const r = recs[k];
       if (!r || r.career || !blockIds.has(r.match)) continue;
-      const who = r.pid ? pn(r.pid) : r.team ? tn({ comp: r.kind === 'cup' ? 'cup' : r.kind }, r.team) : '';
+      const who = r.pid && r.pid2 ? `${pn(r.pid)} & ${pn(r.pid2)}` : r.pid ? pn(r.pid) : r.team ? tn({ comp: r.kind === 'cup' ? 'cup' : r.kind }, r.team) : '';
       add(90, 'rec:' + k + ':' + r.match, '📜', `New record · ${r.label.toLowerCase()}: ${who} (${r.val})`, { match: r.match });
     }
     // standout performances of the round
@@ -1396,9 +1518,13 @@
         })),
         dnb: I.batters.filter(b => !b.batted).map(b => bt.players[b.idx].pid),
         bowling: Object.entries(I.bowlers).sort((a, b) => a[1].order - b[1].order).map(([idx, s]) => ({
-          pid: bw.players[idx].pid, balls: s.balls, r: s.runs, w: s.wkts, m: s.maidens || 0, dots: s.dots, wd: s.wides, nb: s.nbs,
+          pid: bw.players[idx].pid, balls: s.balls, r: s.runs, w: s.wkts, m: s.maidens || 0, dots: s.dots, wd: s.wides, nb: s.nbs, ...(s.ht ? { ht: s.ht } : {}),
         })),
         fow: I.fow.map(f => ({ w: f.wkt, r: f.runs, ov: f.over })),
+        // partnerships (the last one may be unbroken) and batter v bowler
+        parts: (I.parts || []).concat(I.partnership && (I.partnership.runs || I.partnership.balls) ? [{ pair: [I.striker, I.nonStriker].filter(x => x !== null && x !== undefined), runs: I.partnership.runs, balls: I.partnership.balls, wkt: null, open: true }] : [])
+          .map(p => ({ p: p.pair.map(ix => bt.players[ix].pid), r: p.runs, b: p.balls, w: p.wkt, ...(p.open ? { no: true } : {}) })),
+        vs: Object.entries(I.vs || {}).map(([k, v]) => { const [a, b] = k.split('|').map(Number); return [bt.players[a].pid, bw.players[b].pid, v.r, v.b, v.o]; }),
       };
     });
     let winner = match.result.winner === null ? null : sides[match.result.winner];
@@ -1817,6 +1943,7 @@
     buildMatch, simulateFixture, pendingFixtures, fmtStats, blankStats: blank,
     impactScores, playerOfMatch, seriesRace, figuresLine, formMap, formOf, raceFor, seasonRecords,
     allTimeRecords, brokenRecords, trophyCabinet, seasonStory, RECORD_ORDER, seasonCeremony, playerAwards,
+    DERBIES, derbyOf, headToHead, roundsOf, teamOfRound, totrCounts, matchReport, playerHeadToHead,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CricketComp = api;

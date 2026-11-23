@@ -245,6 +245,7 @@
         state.ctx.recorded = true;
         recordWithCheck(state.ctx.compId, state.ctx.fixtureId, m, 'played');
         setTimeout(showRecordPopup, 1200);
+        setTimeout(flushAchievements, 700);
         state.saveMsg = 'Saving…';
         save().then(() => { if (state.screen === 'result') render(); });
       }
@@ -272,12 +273,14 @@
     if (inn().done || E.needsBowler(m)) return;
     const batMode = state.bat, bowlPlan = state.bowl;
     state.overSum = null;
+    const I0 = inn();
     const ev = E.bowlBall(m, batMode, bowlPlan);
+    const ach = ballBanners(ev, I0);
     state.last = { ev, pos: needlePos(ev), batMode, bowlPlan };
     if (ev.endOfOver && !inn().done) makeOverSummary(ev);
     state.preview = false;
 
-    if (state.quick) { advance(); return; }
+    if (state.quick) { advance(); ach.forEach(pushBanner); return; }
 
     state.busy = true;
     const box = document.getElementById('delivery');
@@ -291,7 +294,7 @@
       needle.classList.add('sweep');
       needle.style.left = state.last.pos + '%';
     }
-    setTimeout(() => { state.busy = false; advance(); }, ev.outcome === undefined ? 350 : 780);
+    setTimeout(() => { state.busy = false; advance(); ach.forEach(pushBanner); }, ev.outcome === undefined ? 350 : 780);
   }
 
   // Let the computer make both captains' choices (for speeding through)
@@ -300,6 +303,7 @@
     const m = state.match;
     const startInn = m.currentInnings;
     let last = null, safety = 0;
+    const achs = [];
     while (!inn().done && safety++ < 1000) {
       if (E.needsBowler(m)) {
         if (!untilEndOfInnings) break;
@@ -307,12 +311,15 @@
       }
       const batMode = E.cpuBatMode(m), bowlPlan = E.cpuBowlPlan(m);
       state.overSum = null;
+      const I0 = inn();
       const ev = E.bowlBall(m, batMode, bowlPlan);
+      achs.push(...ballBanners(ev, I0));
       last = { ev, pos: needlePos(ev), batMode, bowlPlan };
       if (!untilEndOfInnings && ev.endOfOver) { if (!inn().done) makeOverSummary(ev); break; }
     }
     if (last) { state.last = last; state.preview = false; }
     if (m.currentInnings === startInn) advance();
+    achs.forEach(pushBanner);
   }
 
   function setButtonsDisabled(d) {
@@ -494,7 +501,7 @@
         <div class="sb-overs">${E.oversStr(i.balls)} / ${m.overs} ov</div>
       </div>
       <div class="sb-sub">${sub}</div>
-      <div class="sb-vs">vs ${esc(bt.name)}${i.superOver ? ` · scores were level on ${m.innings[0].runs}` : m.innings.length === 2 ? ` · 1st innings ${m.innings[0].runs}/${m.innings[0].wkts}` : ''}</div>
+      <div class="sb-vs">${state.ctx ? derbyTag(m.teams[0].id, m.teams[1].id) : ''}vs ${esc(bt.name)}${i.superOver ? ` · scores were level on ${m.innings[0].runs}` : m.innings.length === 2 ? ` · 1st innings ${m.innings[0].runs}/${m.innings[0].wkts}` : ''}</div>
       ${target}
     </div>`;
   }
@@ -686,6 +693,7 @@
       <div class="card-meta">
         Extras ${ex} (wd ${I.extras.wd}, nb ${I.extras.nb})${dnb.length ? `<br>Did not bat: ${dnb.map(p => pLink(p)).join(', ')}` : ''}${fow ? `<br>Fall of wickets: ${fow}` : ''}
       </div>
+      ${I.superOver ? '' : partsLine((I.parts || []).concat(I.partnership && (I.partnership.runs || I.partnership.balls) ? [{ pair: [I.striker, I.nonStriker].filter(x => x !== null && x !== undefined), runs: I.partnership.runs, balls: I.partnership.balls, open: true }] : []).map(x => ({ p: x.pair, r: x.runs, b: x.balls, no: !!x.open })), ix => bt.players[ix].name)}
       <div class="table-scroll"><table class="card"><thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th><th>Dots</th><th>Ext</th></tr></thead>
       <tbody>${bowlingRows(I, { live: false })}</tbody></table></div>
       <div style="height:18px"></div>
@@ -822,6 +830,7 @@
         <h1>${tie ? 'It\'s a tie!' : `${esc(w.name)} win!`}</h1>
         <h2 class="muted">${esc(r.text)}</h2>
         ${awardsHTML()}
+        ${state.ctx ? (() => { const f = fixtureById(state.ctx); const dbm = f && f.matchId ? state.db.matches.find(x => x.id === f.matchId) : null; return dbm ? `<div class="result-report">${reportHTML(dbm)}</div>` : ''; })() : ''}
         ${state.ctx ? `<p class="muted" style="margin:0">${esc(state.saveMsg)}</p>
         <div class="btn-row"><button class="primary" id="btn-back-comp">Back to ${esc(compById(state.ctx.compId).name)}</button></div>`
         : `<div class="btn-row"><button class="primary" id="btn-again">Rematch</button><button class="secondary" id="btn-new">New setup</button></div>`}
@@ -869,6 +878,9 @@
         <li><b>City clubs</b>: 21 clubs of 6 players (Dresden joined as the 21st). Every club plays both competitions with the same squad: the <b>Städteliga</b> (three divisions of 7, one club rests each round; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and the <b>Städtepokal</b> (7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final). Both competitions are one season: the draft opens when both are finished. Seasons started before Dresden joined keep their old format (18 clubs in divisions of 6, 20 in the cup).</li>
         <li><b>Award ceremony</b>: after the last match of a season a ceremony opens before the draft. For the 1., 2. and 3. Liga and the Städtepokal: champion, runner-up, player of the competition, best batter (most runs) and best bowler (most wickets). Then promoted and relegated clubs, moments of the season (highest score, best bowling, fastest fifty, closest finish), Golden Bat and Golden Ball (all competitions together), Club of the Season (biggest climb in the club ranking), the Double, the Team of the Season (2 batters, 2 all-rounders, 2 bowlers and a captain) and the Player of the Season. Winners keep a badge on their player card; History has a Hall of Fame and every ceremony can be watched again.</li>
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
+        <li><b>Team of the Round</b> ⭐: after every Städteliga round (all three divisions) and every Städtepokal round, the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</li>
+        <li><b>Derbies</b> 🔥: neighbouring clubs (Nordderby Hamburg v Bremen, Rheinderby Köln v Düsseldorf, Sachsenderby Leipzig v Dresden and more) get a derby tag and a head-to-head record. Only a label: the match plays the same.</li>
+        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face. On the player card, 📷 Photo swaps the drawn face for your own picture.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
@@ -1441,6 +1453,281 @@
   const tname = (kind, id) => C.teamOf(state.db, kind, id).name;
   const tcolor = (kind, id) => C.teamOf(state.db, kind, id).color;
   const chipTeam = (kind, id) => `<span class="tchip" data-team="${kind}:${id}" role="button" tabindex="0"><span class="dot" style="background:${tcolor(kind, id)}"></span>${esc(tname(kind, id))}</span>`;
+
+  // ======================= PLAYER FACES =======================
+  // Every player gets a comic-style face, drawn from their id so it never changes, wearing the club's colour.
+  // A picture uploaded on the player card (p.photo, 96×96 JPEG) replaces it.
+  const AV_SKIN = ['#f7dcc3', '#efc4a0', '#e3ad84', '#cf9266', '#b57749', '#955a35', '#774427', '#5c331d'];
+  const AV_HAIR = ['#1c1714', '#2e2119', '#45291a', '#663d22', '#8d5428', '#b9793a', '#ddb36a', '#c4441f', '#8a8a8a', '#e6e1d8', '#6c3fa0', '#2f6cb8'];
+  const AV_INK = '#2a1f19';
+  function avRand(seed) {
+    let h = 2166136261;
+    for (const c of String(seed)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+    let a = h >>> 0;
+    return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  const pickW = (r, list) => { let x = r() * list.reduce((s, it) => s + it[1], 0); for (const [v, w] of list) { if ((x -= w) < 0) return v; } return list[0][0]; };
+  function tint(color, l) {
+    const m = /hsl\(\s*([\d.]+)[\s,]+([\d.]+)%[\s,]+([\d.]+)%/.exec(color || '');
+    return m ? `hsl(${m[1]} ${Math.min(55, +m[2])}% ${l}%)` : '#ece5d8';
+  }
+  function avatarSVG(seed, shirt) {
+    const r = avRand(seed);
+    const skin = AV_SKIN[Math.floor(r() * AV_SKIN.length)];
+    const hc = AV_HAIR[pickW(r, [[0, 6], [1, 5], [2, 4], [3, 3], [4, 2], [5, 1.5], [6, 1.5], [7, 0.8], [8, 0.8], [9, 0.4], [10, 0.35], [11, 0.35]])];
+    const style = pickW(r, [['short', 4], ['side', 4], ['long', 5], ['bun', 2], ['afro', 2], ['ponytail', 3], ['spiky', 2], ['buzz', 2], ['bald', 1], ['mohawk', 0.7]]);
+    const beard = ['long', 'bun', 'ponytail'].includes(style) ? (r() < 0.06 ? 'stubble' : 'none') : pickW(r, [['none', 5], ['stubble', 2], ['full', 1.5], ['moustache', 1]]);
+    const band = style !== 'mohawk' && r() < 0.16, glasses = r() < 0.11, happy = r() < 0.18;
+    const mouth = pickW(r, [['smile', 5], ['grin', 3], ['flat', 1.2], ['o', 0.6]]);
+    const brow = r() < 0.5 ? 0 : r() < 0.5 ? -1 : 1;
+    const S = sw => `stroke="${AV_INK}" stroke-width="${sw || 1.6}" stroke-linejoin="round"`;
+    const hp = d => `<path d="${d}" fill="${hc}" ${S()}/>`;
+    let back = '', front = '';
+    const shortTop = 'M18 27C17 15 25 11 32 11C40 11 47 15 46 27C43 20 38 18 32 19C26 18 21 20 18 27Z';
+    const sideTop = 'M18 28C16 14 26 10 33 10C42 10 48 16 46 28C44 22 40 19 34 19C30 22 24 23 18 28Z';
+    if (style === 'short') front = hp(shortTop);
+    else if (style === 'side') front = hp(sideTop);
+    else if (style === 'buzz') front = `<path d="M18.5 25C19 15 26 12.5 32 12.5C38 12.5 45 15 45.5 25C42 19 37 17 32 17C27 17 22 19 18.5 25Z" fill="${hc}" opacity=".85"/>`;
+    else if (style === 'long') { back = hp('M15 30C13 13 23 8 32 8C41 8 51 13 49 30L51 52C46 54 42 51 40 47L24 47C22 51 18 54 13 52Z'); front = hp('M18 28C18 15 25 11 32 11C39 11 46 15 46 28C42 21 37 17 33 17C30 21 24 25 18 28Z'); }
+    else if (style === 'bun') { back = `<circle cx="32" cy="9" r="6.5" fill="${hc}" ${S()}/>`; front = hp('M18 26C18 15 25 12 32 12C39 12 46 15 46 26C42 20 37 18 32 18C27 18 22 20 18 26Z'); }
+    else if (style === 'ponytail') { back = hp('M43 17C55 18 56 40 49 48C50 37 48 28 43 25Z'); front = hp(sideTop); }
+    else if (style === 'afro') { back = `<circle cx="32" cy="24" r="19.5" fill="${hc}" ${S()}/>`; front = [19, 24.5, 30, 35.5, 41, 45].map((x, i) => `<circle cx="${x}" cy="${i === 0 || i === 5 ? 21 : 16.5}" r="4.6" fill="${hc}"/>`).join(''); }
+    else if (style === 'spiky') front = hp('M18 26L18.5 15L23 17.5L24.5 9L29 14L32 7L35 14L39.5 9L41 17.5L45.5 15L46 26C42 20 37 18 32 18C27 18 22 20 18 26Z');
+    else if (style === 'mohawk') front = hp('M28.5 21L28 5L32 9L36 4.5L35.5 21C34 19 30 19 28.5 21Z');
+    let bd = '';
+    if (beard === 'stubble') bd = `<path d="M18.5 31C19.5 44 26 46 32 46C38 46 44.5 44 45.5 31C43 38 39 40.5 32 40.5C25 40.5 21 38 18.5 31Z" fill="${hc}" opacity=".3"/>`;
+    else if (beard === 'full') bd = `<path d="M18.5 30C19 45 26 48.5 32 48.5C38 48.5 45 45 45.5 30C43 38 39 40 32 40C25 40 21 38 18.5 30Z" fill="${hc}" ${S()}/>`;
+    else if (beard === 'moustache') bd = `<path d="M26.5 37.2Q32 33.4 37.5 37.2Q32 35.9 26.5 37.2Z" fill="${hc}" ${S(1.1)}/>`;
+    const eyes = happy
+      ? `<path d="M24.5 30.5q2-2.4 4 0M35.5 30.5q2-2.4 4 0" fill="none" ${S()}/>`
+      : `<ellipse cx="26.5" cy="30" rx="1.9" ry="2.4" fill="${AV_INK}"/><ellipse cx="37.5" cy="30" rx="1.9" ry="2.4" fill="${AV_INK}"/><circle cx="27.1" cy="29.1" r=".65" fill="#fff"/><circle cx="38.1" cy="29.1" r=".65" fill="#fff"/>`;
+    const brows = `<path d="M23.5 ${25.5 + brow}q3-2.2 6 ${-brow}M34.5 ${25.5 - brow}q3-2.2 6 ${brow}" fill="none" stroke="${style === 'bald' || hc === '#e6e1d8' ? AV_INK : hc}" stroke-width="1.9" stroke-linecap="round"/>`;
+    const mth = mouth === 'grin' ? `<path d="M27 37.5Q32 43.5 37 37.5Z" fill="#fff" ${S(1.3)}/>`
+      : mouth === 'flat' ? `<path d="M28.5 38.6h7" ${S(1.5)} stroke-linecap="round"/>`
+      : mouth === 'o' ? `<ellipse cx="32" cy="38.6" rx="1.9" ry="2.2" fill="${AV_INK}"/>`
+      : `<path d="M27.5 37.6q4.5 3.8 9 0" fill="none" ${S()} stroke-linecap="round"/>`;
+    const gl = glasses ? `<g fill="none" ${S(1.3)}><circle cx="26.5" cy="30" r="4"/><circle cx="37.5" cy="30" r="4"/><path d="M30.5 30h3M22.5 29.5l-4-1M41.5 29.5l4-1"/></g>` : '';
+    const hb = band ? `<path d="M17.8 23.5C24 19 40 19 46.2 23.5L46.2 27C40 22.5 24 22.5 17.8 27Z" fill="${shirt}" ${S(1.2)}/>` : '';
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><clipPath id="c"><circle cx="32" cy="32" r="32"/></clipPath></defs><g clip-path="url(#c)">
+<rect width="64" height="64" fill="${tint(shirt, 86)}"/>${back}
+<rect x="27" y="38" width="10" height="11" rx="3" fill="${skin}" ${S()}/>
+<path d="M7 66C8 52 19 46.5 32 46.5C45 46.5 56 52 57 66Z" fill="${shirt}" ${S()}/><path d="M26.5 47L32 54L37.5 47" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>
+<ellipse cx="17.6" cy="31" rx="3" ry="4" fill="${skin}" ${S()}/><ellipse cx="46.4" cy="31" rx="3" ry="4" fill="${skin}" ${S()}/>
+<ellipse cx="32" cy="29.5" rx="14" ry="16" fill="${skin}" ${S()}/>${bd}
+<circle cx="22.6" cy="35.3" r="2.3" fill="#e5736a" opacity=".28"/><circle cx="41.4" cy="35.3" r="2.3" fill="#e5736a" opacity=".28"/>
+${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}" stroke-width="1.2" stroke-linecap="round"/>${mth}${gl}${front}${hb}</g></svg>`;
+  }
+  const faceCache = new Map();
+  function clubColorOf(pid) {
+    const db = state.db;
+    if (!db) return '#888';
+    for (const t of (C.clubEra(db) ? db.teams.cup : db.teams.league) || []) if (t.players.includes(pid)) return t.color;
+    const p = pmap()[pid], t = p && C.teamOf(db, 'cup', p.city);
+    return t ? t.color : '#888';
+  }
+  function faceSrc(pid, name) {
+    const p = pid && state.db ? pmap()[pid] : null;
+    if (p && p.photo) return p.photo;
+    const color = pid ? clubColorOf(pid) : '#888', key = (pid || name) + '|' + color;
+    if (!faceCache.has(key)) faceCache.set(key, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(avatarSVG(pid || name, color)));
+    return faceCache.get(key);
+  }
+  const faceImg = (pid, size, name) => `<img class="face ${size || ''}" src="${faceSrc(pid, name)}" alt="" aria-hidden="true" draggable="false">`;
+  // put a small face in front of every player link
+  function decorateFaces(rootEl) {
+    (rootEl || app).querySelectorAll('.plink[data-player]').forEach(b => {
+      if (b.querySelector('.face, .face-skip') || b.closest('.no-faces')) return;
+      b.insertAdjacentHTML('afterbegin', faceImg(b.dataset.player));
+    });
+  }
+  // shrink an uploaded picture to a 96×96 square (cropped from the centre, a little toward the top for faces)
+  async function photoFromFile(file) {
+    const url = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const S = 96, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const k = Math.min(img.naturalWidth, img.naturalHeight);
+    const sx = (img.naturalWidth - k) / 2, sy = Math.max(0, (img.naturalHeight - k) / 3);
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, S, S);
+    ctx.drawImage(img, sx, sy, k, k, 0, 0, S, S);
+    let q = 0.8, out = cv.toDataURL('image/jpeg', q);
+    while (out.length > 9000 && q > 0.4) { q -= 0.1; out = cv.toDataURL('image/jpeg', q); }
+    return out;
+  }
+  async function setPlayerPhoto(pid, photo) {
+    const p = state.db.players.find(x => x.id === pid), old = p.photo;
+    if (photo) p.photo = photo; else delete p.photo;
+    if (!(await save())) { if (old) p.photo = old; else delete p.photo; return false; }
+    return true;
+  }
+
+  // ======================= ACHIEVEMENT BANNERS =======================
+  // A banner slides in at the top for every milestone: face, name and the numbers. Tap to open the player.
+  const bannerQ = [];
+  let bannerOn = false;
+  function pushBanner(b) { if (!b) return; bannerQ.push(b); if (!bannerOn) nextBanner(); }
+  function nextBanner() {
+    let el = document.getElementById('ach');
+    const b = bannerQ.shift();
+    if (!b) { bannerOn = false; if (el) el.hidden = true; return; }
+    bannerOn = true;
+    if (!el) { el = document.createElement('div'); el.id = 'ach'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+    el.hidden = false;
+    el.className = 'ach ' + (b.cls || '');
+    el.innerHTML = b.html + `<button class="ach-x" aria-label="Close">×</button>`;
+    void el.offsetWidth; el.classList.add('in');
+    let t = null;
+    const done = () => { clearTimeout(t); el.onclick = null; el.classList.remove('in'); setTimeout(nextBanner, 320); };
+    t = setTimeout(done, b.ms || 4200);
+    el.onclick = e => {
+      done();
+      if (e.target.closest('.ach-x')) return;
+      const pl = e.target.closest('[data-player]');
+      if (pl && pmap()[pl.dataset.player]) openPlayer(pl.dataset.player);
+      else if (b.open) b.open();
+    };
+  }
+  function clubChipOf(pid, club) {
+    const t = club ? C.teamOf(state.db, 'cup', club) : null;
+    const color = t ? t.color : clubColorOf(pid);
+    const name = t ? t.name : (() => { for (const x of state.db.teams.cup || []) if (x.players.includes(pid)) return x.name; return ''; })();
+    return name ? `<span class="ach-club"><span class="dot" style="background:${color}"></span>${esc(name)}</span>` : '';
+  }
+  function playerBanner(icon, kicker, pid, stat, sub, name) {
+    const p = pid ? pmap()[pid] : null;
+    const nm = p ? p.name : name || '';
+    return {
+      cls: 'one',
+      html: `<div class="ach-face" ${p ? `data-player="${pid}"` : ''}>${faceImg(pid, 'xl', nm)}</div>
+        <div class="ach-body"><div class="ach-kick">${icon} ${esc(kicker)}</div>
+        <div class="ach-name">${esc(nm)}</div>
+        <div class="ach-stat">${stat}</div>${sub ? `<div class="ach-sub">${sub}</div>` : ''}</div>`,
+      open: p ? () => openPlayer(pid) : null,
+    };
+  }
+  // banners for one delivery of a match being played
+  function ballBanners(ev, I) {
+    const out = [], m = state.match;
+    if (!ev || !I) return out;
+    const bt = m.teams[I.bat], bw = m.teams[I.bowl];
+    if (ev.milestone && ev.batIdx !== undefined) {
+      const s = I.batters[ev.batIdx], p = bt.players[ev.batIdx];
+      out.push(playerBanner(ev.milestone === 50 ? '🔥' : '⚡', ev.milestone === 50 ? 'FIFTY!' : 'THIRTY!', p.pid, `<b>${s.runs}${s.out ? '' : '*'}</b> off ${s.balls} balls · ${s.fours}×4 · ${s.sixes}×6`, `${esc(bt.name)} v ${esc(bw.name)} · reached it off ${s['b' + ev.milestone]} balls`, p.name));
+    }
+    if ((ev.hatTrick || ev.haul) && ev.bowlIdx !== undefined && ev.bowlIdx !== null) {
+      const s = I.bowlers[ev.bowlIdx], p = bw.players[ev.bowlIdx];
+      const fig = `<b>${s.wkts}/${s.runs}</b> off ${E.oversStr(s.balls)} ov`;
+      if (ev.hatTrick) out.push(playerBanner('🎩', 'HAT-TRICK!', p.pid, fig, `Three wickets in three balls for ${esc(bw.name)}`, p.name));
+      else out.push(playerBanner('🎯', `${ev.haul}-WICKET HAUL!`, p.pid, fig, `${esc(bw.name)} v ${esc(bt.name)}`, p.name));
+    }
+    return out;
+  }
+  // banners for a recorded match: the best performances in it
+  function matchHighlights(dbm) {
+    const list = [];
+    if (!dbm) return list;
+    const kind = dbm.comp === 'liga' ? 'cup' : dbm.comp;
+    const tn = id => { const t = C.teamOf(state.db, kind, id); return t ? t.name : id; };
+    for (const I of dbm.innings) {
+      const opp = dbm.teams.find(t => t !== I.team);
+      for (const b of I.batting) if (b.r >= 50) list.push({ score: 100 + b.r, b: playerBanner('🔥', 'FIFTY!', b.pid, `<b>${b.r}${b.out ? '' : '*'}</b> off ${b.b} balls · ${b.f4}×4 · ${b.s6}×6`, `${esc(tn(I.team))} v ${esc(tn(opp))}`) });
+      for (const w of I.bowling) {
+        if (w.ht) list.push({ score: 200 + w.w, b: playerBanner('🎩', 'HAT-TRICK!', w.pid, `<b>${w.w}/${w.r}</b> off ${E.oversStr(w.balls)} ov`, `${esc(tn(opp))} v ${esc(tn(I.team))}`) });
+        else if (w.w >= 3) list.push({ score: 100 + w.w * 20 - w.r / 10, b: playerBanner('🎯', `${w.w}-WICKET HAUL!`, w.pid, `<b>${w.w}/${w.r}</b> off ${E.oversStr(w.balls)} ov`, `${esc(tn(opp))} v ${esc(tn(I.team))}`) });
+      }
+    }
+    return list;
+  }
+  function pomBanner(dbm) {
+    if (!dbm || !dbm.motm) return null;
+    return playerBanner('⭐', 'PLAYER OF THE MATCH', dbm.motm, esc(C.figuresLine(dbm.innings, dbm.motm)), esc(dbm.result));
+  }
+  function totrBanner(T) {
+    return {
+      cls: 'six',
+      html: `<div class="ach-body"><div class="ach-kick">⭐ TEAM OF THE ROUND · ${esc(T.comp.name)} ${esc(T.round.label)}</div>
+        <div class="ach-six">${T.players.map(x => `<span class="ach-p" data-player="${x.pid}">${faceImg(x.pid, 'lg')}<span>${esc(x.name.split(' ').slice(-1)[0])}</span></span>`).join('')}</div></div>`,
+      ms: 5200,
+      open: () => { state.compTab[T.comp.kind] = 'totr'; openComp(T.comp.kind); },
+    };
+  }
+
+  // ======================= DERBIES / TEAM OF THE ROUND =======================
+  function derbyTag(a, b) { const d = C.derbyOf(a, b); return d ? `<span class="derby-tag">🔥 ${esc(d)}</span>` : ''; }
+  function h2hLine(kind, a, b) {
+    if (kind !== 'liga' && kind !== 'cup') return '';
+    const h = C.headToHead(state.db, a, b);
+    if (!h.played) return '';
+    const t = h.played - h.a - h.b;
+    return `<div class="h2h-line">Head-to-head: <b>${esc(tname(kind, a))} ${h.a}</b> – <b>${h.b} ${esc(tname(kind, b))}</b>${t ? ` · ${t} tied` : ''}</div>`;
+  }
+  const ROLE_TAG = { bat: 'BAT', ar: 'AR', bowl: 'BOWL' };
+  function totrCardHTML(T, head) {
+    const pm = pmap();
+    const line = x => [x.balls || x.runs ? `${x.runs} (${x.balls})` : '', x.ballsBowled ? `${x.wkts}/${x.rc}` : ''].filter(Boolean).join(' · ');
+    return `<div class="totr">
+      ${head ? `<div class="totr-head"><b>${esc(T.round.label)}</b><span class="muted">${esc(T.comp.name)} S${T.comp.season}</span></div>` : ''}
+      <ul class="totr-list">${T.players.map(x => `<li class="${x === T.star ? 'star' : ''}">
+        <button class="plink totr-p" data-player="${x.pid}">${faceImg(x.pid, 'lg')}</button>
+        <div class="totr-info"><button class="plink" data-player="${x.pid}"><span class="face-skip"></span>${esc(x.name)}</button>${x === T.star ? ' <span title="Best of the round">⭐</span>' : ''}
+          <div class="totr-sub"><span class="role-tag">${ROLE_TAG[(pm[x.pid] || {}).role] || ''}</span>${x.club ? `<span class="dot" style="background:${tcolor('cup', x.club)}"></span>${esc(C.teamOf(state.db, 'cup', x.club).short)}` : ''} · ${line(x)}</div></div>
+        <span class="totr-pts">${x.points}<small>pts</small></span></li>`).join('')}</ul>
+    </div>`;
+  }
+  // the latest finished round of the running (or last) Städteliga / Städtepokal
+  function latestTotr() {
+    const db = state.db, idx = {};
+    db.matches.forEach((m, i) => { idx[m.id] = i; });
+    let best = null;
+    for (const kind of ['liga', 'cup']) {
+      const comp = C.activeComp(db, kind) || C.lastComp(db, kind);
+      if (!comp) continue;
+      for (const r of C.roundsOf(db, comp)) {
+        if (!r.done) continue;
+        const at = Math.max(...r.fx.map(f => idx[f.matchId] ?? -1));
+        if (!best || at > best.at) best = { at, comp, key: r.key };
+      }
+    }
+    return best ? C.teamOfRound(db, best.comp, best.key) : null;
+  }
+  function totrPanelHTML() {
+    if (!C.clubEra(state.db)) return '';
+    const T = latestTotr();
+    if (!T) return '';
+    return `<div class="panel totr-panel">
+      <div class="inn-title"><h2>Team of the Round</h2><span class="muted" style="font-size:13px">${esc(T.comp.name)} · ${esc(T.round.label)}</span></div>
+      ${totrCardHTML(T, false)}
+      <div style="margin-top:10px"><button class="secondary" data-totr-open="${T.comp.kind}">All rounds →</button></div>
+    </div>`;
+  }
+  function totrTabHTML(comp) {
+    const rounds = C.roundsOf(state.db, comp).filter(r => r.done).reverse();
+    if (!rounds.length) return `<p class="muted note">The Team of the Round is picked when every match of a round is finished: the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</p>`;
+    return `<p class="muted note" style="margin-top:0">After every round: the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points. ⭐ best of the round.</p>
+      <div class="totr-grid">${rounds.map(r => totrCardHTML(C.teamOfRound(state.db, comp, r.key), true)).join('')}</div>`;
+  }
+
+  // ======================= MATCH REPORT / PARTNERSHIPS =======================
+  function reportHTML(dbm) {
+    const R = dbm ? C.matchReport(state.db, dbm) : null;
+    return R ? `<div class="report"><div class="cc-kicker">Match report</div><h3 class="rep-head">${esc(R.headline)}</h3><p>${esc(R.body)}</p></div>` : '';
+  }
+  function partsLine(list, nameOf) {
+    if (!list || !list.length) return '';
+    return `<div class="parts"><span class="parts-lbl">Partnerships</span>${list.map((p, i) => `<span class="part"><b>${p.r}${p.no ? '*' : ''}</b> (${p.b}) <span class="muted">${p.p.map(nameOf).map(esc).join(' & ')}</span></span>`).join('')}</div>`;
+  }
+  function h2hHTML(pid) {
+    const H = C.playerHeadToHead(state.db, pid), pm = pmap();
+    if (!H.any) return `<h3 style="margin-top:14px">Head-to-head</h3><p class="muted note" style="margin-top:0">Batter v bowler numbers are collected from matches played from now on.</p>`;
+    const nm = id => `<button class="plink" data-player="${id}">${esc(pm[id] ? pm[id].name : id)}</button>`;
+    const sr = x => (x.b ? Math.round(100 * x.r / x.b) : '–');
+    const tbl = (title, head, rows) => rows.length ? `<div class="table-scroll"><table class="card h2h"><thead><tr><th>${title}</th>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
+    return `<h3 style="margin-top:14px">Head-to-head</h3>
+      <div class="h2h-grid">
+        ${tbl('Against bowlers', ['R', 'B', 'Out', 'SR'], H.asBat.slice(0, 6).map(x => `<tr><td>${nm(x.id)}</td><td><b>${x.r}</b></td><td>${x.b}</td><td>${x.o}</td><td>${sr(x)}</td></tr>`))}
+        ${tbl('Against batters', ['R', 'B', 'Wkts', 'SR'], H.asBowl.slice(0, 6).map(x => `<tr><td>${nm(x.id)}</td><td>${x.r}</td><td>${x.b}</td><td><b>${x.o}</b></td><td>${sr(x)}</td></tr>`))}
+      </div>
+      <p class="muted note" style="margin-top:4px">Most-faced opponents first. Counts matches played since head-to-head tracking started.</p>`;
+  }
   function fixtureLabel(comp, f) {
     if (f.label) return `${comp.name} ${f.label}`;
     if (f.stage === 'group') return `${comp.name} Group ${f.group}, match ${f.round}`;
@@ -1620,7 +1907,8 @@
     return `<div class="panel nextup">
       <div class="next-info">
         <div class="cc-kicker">Next up · ${esc(fixtureLabel(comp, f))}</div>
-        <div class="next-teams">${chipTeam(comp.kind, f.home)}<span class="vs">vs</span>${chipTeam(comp.kind, f.away)}</div>
+        <div class="next-teams">${chipTeam(comp.kind, f.home)}<span class="vs">vs</span>${chipTeam(comp.kind, f.away)}${derbyTag(f.home, f.away)}</div>
+        ${h2hLine(comp.kind, f.home, f.away)}
         <div class="muted" style="font-size:13px">${comp.overs} overs · ${esc(E.PITCHES[f.pitch].label)} pitch · ${roundLeft(comp, f)} match${roundLeft(comp, f) === 1 ? '' : 'es'} left in this round${other ? `, then the ${esc(other.name)}` : ''}</div>
       </div>
       <div class="next-actions"><button class="primary" data-nu-play="${f.id}">Play</button><button class="secondary" data-nu-sim="${f.id}">Quick sim</button></div>
@@ -1881,6 +2169,7 @@
       <div class="comp-grid">${compCardHTML(C.leagueKind(state.db))}${compCardHTML('cup')}</div>
       ${nextUpHTML()}
       ${storyHTML()}
+      ${totrPanelHTML()}
       ${seasonAwardsHTML()}
       ${rankingPanelHTML()}
       <div class="panel">
@@ -1899,6 +2188,7 @@
     bindHomeBoard(document.getElementById('home-board'));
     bindRankPanel();
     app.querySelectorAll('.story-line[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
+    app.querySelectorAll('[data-totr-open]').forEach(b => b.onclick = () => { state.compTab[b.dataset.totrOpen] = 'totr'; openComp(b.dataset.totrOpen); });
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
     const rs = document.getElementById('btn-resume'); if (rs) rs.onclick = resumeLive;
@@ -1946,7 +2236,8 @@
         ? [['groups', 'Groups'], ['round2', 'Second round'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
         : [['groups', 'Groups'], ['knockout', 'Knockout'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']];
     const draftOf = comp.transfers && comp.transfers.ref ? (compById(comp.transfers.ref) || {}).transfers : comp.transfers;
-    const tabs = draftOf ? baseTabs.concat([['transfers', draftOf.picks ? 'Draft' : 'Transfers']]) : baseTabs;
+    const withTotr = (kind === 'liga' || kind === 'cup') ? baseTabs.flatMap(t => (t[0] === 'leaders' ? [t, ['totr', 'Team of the Round']] : [t])) : baseTabs;
+    const tabs = draftOf ? withTotr.concat([['transfers', draftOf.picks ? 'Draft' : 'Transfers']]) : withTotr;
     let tab = state.compTab[kind];
     if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
     const done = comp.fixtures.filter(f => f.result).length;
@@ -1985,7 +2276,8 @@
       top = `<div class="next">
         <div class="next-info">
           <div class="cc-kicker">Next match · ${esc(fixtureLabel(comp, next))}</div>
-          <div class="next-teams">${chipTeam(kind, next.home)}<span class="vs">vs</span>${chipTeam(kind, next.away)}</div>
+          <div class="next-teams">${chipTeam(kind, next.home)}<span class="vs">vs</span>${chipTeam(kind, next.away)}${kind !== 'league' ? derbyTag(next.home, next.away) : ''}</div>
+          ${h2hLine(kind, next.home, next.away)}
           <div class="muted" style="font-size:13px">${comp.overs} overs · ${esc(E.PITCHES[next.pitch].label)} pitch</div>
           ${nextStakeHTML(comp, next)}
         </div>
@@ -2027,7 +2319,8 @@
         <div class="leaders" style="margin-top:18px">${leadersHTML(st, 'runs', 10, 'Most runs this season', tf)}${leadersHTML(st, 'wkts', 10, 'Most wickets this season', tf)}</div>
 `;
       body += seasonRecordsHTML(comp);
-    } else if (tab === 'transfers') body = draftHTML(kind === 'liga' ? 'cup' : kind, draftOf);
+    } else if (tab === 'totr') body = totrTabHTML(comp);
+    else if (tab === 'transfers') body = draftHTML(kind === 'liga' ? 'cup' : kind, draftOf);
     else body = squadsHTML(kind, comp);
 
     app.innerHTML = `<section class="comp">
@@ -2255,9 +2548,27 @@
     const broken = C.brokenRecords(before, after, f && f.matchId);
     if (broken.length) state.newRecords = (state.newRecords || []).concat(broken);
     if (!wasDone && C.seasonDone(state.db) && state.db.clubs && state.db.clubs.seasons) state.ceremonyDue = state.db.clubs.seasons;
+    // achievement banners: Player of the Match for a played match, the best performances of simulated ones,
+    // and the Team of the Round when this match finished a round
+    const dbm = f && f.matchId ? state.db.matches.find(x => x.id === f.matchId) : null;
+    const ach = state.achDue || (state.achDue = { perf: [], totr: [], pom: null });
+    if (mode === 'sim') ach.perf.push(...matchHighlights(dbm)); else ach.pom = pomBanner(dbm);
+    if (comp && (comp.kind === 'liga' || comp.kind === 'cup')) {
+      const r = C.roundsOf(state.db, comp).find(x => x.fx.some(y => y.id === fixtureId));
+      const T = r && r.done ? C.teamOfRound(state.db, comp, r.key) : null;
+      if (T) ach.totr.push(T);
+    }
+  }
+  function flushAchievements() {
+    const a = state.achDue; state.achDue = null;
+    if (!a) return;
+    if (a.pom) pushBanner(a.pom);
+    a.perf.sort((x, y) => y.score - x.score).slice(0, 3).forEach(x => pushBanner(x.b));
+    a.totr.slice(-2).forEach(T => pushBanner(totrBanner(T)));
   }
   function recordHolder(r) {
     const pm = pmap();
+    if (r.pid && r.pid2 && pm[r.pid] && pm[r.pid2]) return `<button class="plink" data-player="${r.pid}">${esc(pm[r.pid].name)}</button> & <button class="plink" data-player="${r.pid2}">${esc(pm[r.pid2].name)}</button>`;
     if (r.pid && pm[r.pid]) return `<button class="plink" data-player="${r.pid}">${esc(pm[r.pid].name)}</button>`;
     if (r.team) return chipTeam(r.kind || 'cup', r.team);
     return '';
@@ -2309,6 +2620,7 @@
     }
     render();
     setTimeout(showRecordPopup, 400);
+    setTimeout(flushAchievements, 250);
     await save();
   }
 
@@ -2530,7 +2842,7 @@
     // show unfinished rounds first, newest results after
     const open = groups.filter(g => g.list.some(f => !f.result)), closed = groups.filter(g => g.list.every(f => f.result)).reverse();
     return [...open, ...closed].map(g => `<div class="fx-group"><h3>${g.key}</h3>${g.list.map(f => `<div class="fx">
-        <div class="fx-teams">${f.group ? `<span class="gtag">${f.group}</span>` : f.div ? `<span class="gtag">${f.div}. Liga</span>` : ''}${chipTeam(kind, f.home)}<span class="vs">v</span>${chipTeam(kind, f.away)}</div>
+        <div class="fx-teams">${f.group ? `<span class="gtag">${f.group}</span>` : f.div ? `<span class="gtag">${f.div}. Liga</span>` : ''}${chipTeam(kind, f.home)}<span class="vs">v</span>${chipTeam(kind, f.away)}${f.home && f.away && kind !== 'league' ? derbyTag(f.home, f.away) : ''}</div>
         <div class="fx-res">${f.result ? `<button class="plink" data-match="${f.id}">${esc(f.result.text)}</button>` : `<button class="mini" data-play="${f.id}">Play</button><button class="mini ghost" data-sim="${f.id}">Sim</button>`}</div>
       </div>`).join('')}</div>`).join('');
   }
@@ -2562,11 +2874,12 @@
       <div class="card-meta">Extras ${I.extras}${I.dnb.length ? ` · Did not bat: ${I.dnb.map(p => `<button class="plink" data-player="${p}">${esc(pm[p].name)}</button>`).join(', ')}` : ''}</div>
       <div class="table-scroll"><table class="card"><thead><tr><th>${esc(tname(kind, bowlTeam))} bowling</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th></tr></thead><tbody>
         ${I.bowling.map(b => `<tr><td><button class="plink" data-player="${b.pid}">${esc(pm[b.pid].name)}</button></td><td>${E.oversStr(b.balls).replace('.0', '')}</td><td>${b.m}</td><td>${b.r}</td><td><b>${b.w}</b></td><td>${b.balls ? (b.r * 6 / b.balls).toFixed(1) : '–'}</td></tr>`).join('')}
-      </tbody></table></div><div style="height:14px"></div>`;
+      </tbody></table></div>${partsLine(I.parts, pid => (pm[pid] ? pm[pid].name : pid))}<div style="height:14px"></div>`;
     }).join('');
     modalCard.innerHTML = `<div class="cc-kicker">${esc(m.compName)} S${m.season} · ${esc(C.STAGE_LABEL[m.stage])}${m.group ? ' ' + m.group : ''} · ${m.mode === 'played' ? 'played' : 'simulated'}</div>
       <h2 style="margin:4px 0 2px">${esc(m.result)}</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Player of the match: <button class="plink" data-player="${m.motm}">${esc(pm[m.motm].name)}</button> (${esc(C.figuresLine(m.innings, m.motm))}) · ${esc(E.PITCHES[m.pitch].label)} pitch</p>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">${derbyTag(m.teams[0], m.teams[1])}Player of the match: <button class="plink" data-player="${m.motm}">${esc(pm[m.motm].name)}</button> (${esc(C.figuresLine(m.innings, m.motm))}) · ${esc(E.PITCHES[m.pitch].label)} pitch</p>
+      ${m.comp === 'liga' || m.comp === 'cup' ? reportHTML(m) : ''}
       ${inns}
       ${(m.superOvers || []).length ? `<h3 style="margin:4px 0 8px">Super Over${m.superOvers.length > 2 ? 's' : ''}</h3>
         <div class="so-list">${m.superOvers.map(s => `<div class="so-row"><span class="so-tag">${s.n > 1 ? s.n + '. ' : ''}Super Over</span>${chipTeam(kind, s.team)} <b class="num">${s.runs}/${s.wkts}</b>
@@ -2806,6 +3119,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQuick(); });
 
   function bindPlayerLinks(rootEl) {
+    decorateFaces(rootEl);
     (rootEl || app).querySelectorAll('[data-player]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.player); });
   }
 
@@ -3070,8 +3384,14 @@
     const showLiga = C.clubEra(state.db);
     const hasOld = !showLiga;       // in the club era the old Länderliga isn't shown on the player card
     const oldLbl = showLiga ? 'Länderliga (old)' : 'Länderliga';
-    modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
-      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
+    const totrN = C.clubEra(db) ? (C.totrCounts(db)[pid] || 0) : 0;
+    modalCard.innerHTML = `<div class="pc-top">
+      <div class="pc-face">${faceImg(pid, 'hero')}
+        <div class="pc-photo-btns"><label class="link-btn" for="photo-in">📷 ${p.photo ? 'Change' : 'Photo'}</label>${p.photo ? '<button class="link-btn" id="btn-photo-rm">Remove</button>' : ''}</div>
+        <input type="file" id="photo-in" accept="image/*" hidden></div>
+      <div class="pc-id"><div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
+      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div></div>
+      </div>
       ${formLine}
       ${(() => { const aw = C.playerAwards(db)[pid]; return aw && aw.length ? `<div class="badges">${aw.slice().reverse().map(a => `<span class="badge" title="${esc(a.label)} · Season ${a.season}">${a.icon} ${esc(a.label)} · S${a.season}</span>`).join('')}</div>` : ''; })()}
       <form id="rename-form" class="rename-form" hidden>
@@ -3080,7 +3400,7 @@
         <p class="form-msg" id="rename-msg"></p>
       </form>
       <p class="muted" style="margin:0 0 12px;font-size:14px">${C.clubEra(state.db) ? `Club: <b>${esc(tname('cup', p.city))}</b>${hasOld ? ` · Länderliga (old): ${p.state ? esc(tname('league', p.state)) : '–'}` : ''}` : `Städtepokal: ${esc(tname('cup', p.city))} · Länderliga: ${p.state ? esc(tname('league', p.state)) : 'not in a state squad'}`}<br>
-        Player of the match: <b>${st.all.motm}</b> · Player of the series: <b>${st.all.pos}</b>${seriesTitles(pid)}</p>
+        Player of the match: <b>${st.all.motm}</b> · Player of the series: <b>${st.all.pos}</b>${seriesTitles(pid)}${C.clubEra(db) ? ` · Team of the Round: <b>${totrN}</b>` : ''}</p>
       ${teamHistoryHTML(pid)}
       <h3>Batting</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Mat</th><th>Inn</th><th>Runs</th><th>Balls</th><th>HS</th><th>Avg</th><th>SR</th><th>4s</th><th>6s</th><th>30/50</th></tr></thead><tbody>
@@ -3088,12 +3408,27 @@
       <h3 style="margin-top:14px">Bowling</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Ov</th><th>M</th><th>R</th><th>W</th><th>Best</th><th>Avg</th><th>Econ</th><th>Dots</th></tr></thead><tbody>
         ${brow('Career', st.all, 'all')}${showLiga ? brow('Städteliga', st.liga, 'liga') : ''}${brow('Städtepokal', st.cup, 'cup')}${hasOld ? brow(oldLbl, st.league, 'league') : ''}</tbody></table></div>
+      ${h2hHTML(pid)}
       <h3 style="margin-top:14px">Recent matches</h3>
       <div class="ps-recents">${showLiga ? recentHTML('liga', 'Städteliga') : ''}${recentHTML('cup', 'Städtepokal')}${!showLiga ? recentHTML('league', oldLbl) : ''}</div>
       <div style="margin-top:14px"><button class="primary" id="btn-close-modal">${state.modalBack ? '← Back' : 'Close'}</button></div>`;
     modal.hidden = false;
     document.getElementById('btn-close-modal').onclick = () => { if (state.modalBack) { const back = state.modalBack; state.modalBack = null; back(); } else modal.hidden = true; };
     modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => { state.modalBack = null; openMatchCard(b.dataset.match); });
+    const back = state.modalBack;
+    modalCard.querySelectorAll('.h2h [data-player]').forEach(b => b.onclick = () => openPlayer(b.dataset.player, { back: () => openPlayer(pid, back ? { back } : undefined) }));
+    decorateFaces(modalCard.querySelector('.h2h-grid') || modalCard.querySelector('.pc-id'));
+    const pin = document.getElementById('photo-in');
+    pin.onchange = async () => {
+      const file = pin.files && pin.files[0];
+      if (!file) return;
+      try {
+        const photo = await photoFromFile(file);
+        if (await setPlayerPhoto(pid, photo)) { showToast('Photo saved'); openPlayer(pid, back ? { back } : undefined); } else showToast(state.saveMsg || 'Could not save the photo', true);
+      } catch (e) { showToast('That picture could not be read. Try a JPEG or PNG.', true); }
+    };
+    const prm = document.getElementById('btn-photo-rm');
+    if (prm) prm.onclick = async () => { if (await setPlayerPhoto(pid, null)) openPlayer(pid, back ? { back } : undefined); };
     const form = document.getElementById('rename-form');
     document.getElementById('btn-rename').onclick = () => { form.hidden = false; const i = document.getElementById('rename-in'); i.focus(); i.select(); };
     document.getElementById('rename-cancel').onclick = () => { form.hidden = true; };

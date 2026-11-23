@@ -419,7 +419,7 @@
     const overNum = Math.floor(inn.balls / 6);
     const ballInOver = (inn.balls % 6) + 1;
     const ev = {
-      over: overNum, ball: ballInOver, batter: strikerName, bowler: bowlerP.name,
+      over: overNum, ball: ballInOver, batter: strikerName, bowler: bowlerP.name, batIdx: inn.striker, bowlIdx: inn.bowler,
       batMode, bowlPlan, probs: legal, phase, freeHit: inn.freeHit, roll: rand(),
     };
     const tokens = inn.overLog[inn.overLog.length - 1];
@@ -438,6 +438,7 @@
       inn.runs += 1 + r; inn.extras.nb += 1; bw.runs += 1 + r; bw.nbs += 1;
       st.runs += r; if (r === 4) st.fours++; if (r === 6) st.sixes++;
       inn.partnership.runs += 1 + r;
+      matchup(inn, inn.striker, inn.bowler).r += r;
       if (r % 2 === 1) swapStrike(inn);
       inn.freeHit = true;
       ev.type = 'noball'; ev.runs = 1 + r; ev.text = pickOne(LINES.NB) + (r ? ` And ${r} off the bat!` : '');
@@ -452,20 +453,27 @@
     const wasFreeHit = inn.freeHit;
     inn.freeHit = false;
     inn.balls += 1; bw.balls += 1; st.balls += 1; inn.partnership.balls += 1;
+    const mu = matchup(inn, facedIdx, inn.bowler); mu.b += 1;
     ev.outcome = out;
 
     if (out === 'W') {
       const how = pickDismissal(match, batMode, wasFreeHit);
       const fielder = fielderName(match, how === 'run out' ? -1 : inn.bowler);
       st.out = { how, text: dismissalText(how, bowlerP.name, fielder) };
-      if (how !== 'run out') bw.wkts += 1;
+      if (how !== 'run out') {
+        bw.wkts += 1; mu.o += 1;
+        bw.streak = (bw.streak || 0) + 1;
+        if (bw.streak === 3) { ev.hatTrick = true; bw.ht = (bw.ht || 0) + 1; }
+        if (bw.wkts >= 3) ev.haul = bw.wkts;
+      }
       bw.dots += 1;
       inn.wkts += 1;
       inn.fow.push({ wkt: inn.wkts, runs: inn.runs, over: oversStr(inn.balls), batter: strikerName });
       ev.type = 'wicket'; ev.runs = 0; ev.how = how;
       ev.text = `OUT! ${strikerName} ${st.out.text}. ${st.runs} (${st.balls})`;
+      if (ev.hatTrick) ev.text += ` HAT-TRICK for ${bowlerP.name}!`;
       tokens.push('W');
-      inn.partnership = { runs: 0, balls: 0 };
+      endPartnership(inn, wasPair(inn), true);
       if (inn.wkts < maxWkts(match, inn)) {
         const nb = nextBatter(match, inn, facedIdx);
         if (nb !== null) inn.striker = nb;
@@ -479,6 +487,7 @@
     } else {
       const r = Number(out);
       inn.runs += r; bw.runs += r; st.runs += r; inn.partnership.runs += r;
+      mu.r += r; bw.streak = 0;
       if (r === 0) bw.dots += 1;
       if (r === 4) { st.fours++; bw.fours++; }
       if (r === 6) { st.sixes++; bw.sixes++; }
@@ -496,8 +505,8 @@
       } else {
         st.retired = true;
         st.retiredOrder = inn.retireCount = (inn.retireCount || 0) + 1;
+        endPartnership(inn, wasPair(inn), false);
         if (inn.striker === facedIdx) inn.striker = nb; else inn.nonStriker = nb;
-        inn.partnership = { runs: 0, balls: 0 };
         ev.retired = strikerName;
         ev.text += ` ${strikerName} retires not out on ${st.runs} (${st.balls}).`;
       }
@@ -514,6 +523,20 @@
     inn.log.push(ev);
     checkEnd(match);
     return ev;
+  }
+
+  // Batter v bowler: runs, balls and dismissals for each pair (for the head-to-head on player cards)
+  function matchup(inn, bat, bowl) {
+    inn.vs = inn.vs || {};
+    const k = bat + '|' + bowl;
+    return inn.vs[k] || (inn.vs[k] = { r: 0, b: 0, o: 0 });
+  }
+  // Partnerships: each one is kept when it ends (wicket or retirement); the last one stays open
+  function wasPair(inn) { return [inn.striker, inn.nonStriker].filter(x => x !== null && x !== undefined); }
+  function endPartnership(inn, pair, wicket) {
+    inn.parts = inn.parts || [];
+    if (inn.partnership.balls || inn.partnership.runs) inn.parts.push({ pair, runs: inn.partnership.runs, balls: inn.partnership.balls, wkt: wicket ? inn.wkts : null });
+    inn.partnership = { runs: 0, balls: 0 };
   }
 
   // Remember the ball on which a batter reached 30 and 50 (for the fastest-thirty / fifty records)
