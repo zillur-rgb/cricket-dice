@@ -893,11 +893,6 @@ body.no-scroll { overflow: hidden; }
 .face.hero { width: 92px; height: 92px; margin: 0; box-shadow: 0 0 0 3px var(--line); }
 .pc-top { display: flex; gap: 16px; align-items: center; margin-bottom: 6px; }
 .pc-face { position: relative; flex: 0 0 92px; width: 92px; height: 92px; }
-.ph-btn { position: absolute; display: grid; place-items: center; border-radius: 50%; cursor: pointer; line-height: 1; padding: 0;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text); box-shadow: 0 2px 6px rgba(0,0,0,.4); }
-.ph-btn:hover { border-color: var(--accent); }
-.ph-cam { right: -4px; bottom: -4px; width: 32px; height: 32px; font-size: 15px; }
-.ph-rm { right: -4px; top: -4px; width: 26px; height: 26px; font-size: 12px; color: var(--muted); }
 .pc-id { min-width: 0; flex: 1; }
 
 /* ---------- achievement banners ---------- */
@@ -956,5 +951,3 @@ body.no-scroll { overflow: hidden; }
 .parts-lbl { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 11px; width: 100%; }
 .h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
 .ach[hidden] { display: none; }
-/* uploaded photos are shown in black and white (also ones uploaded before) */
-.face.photo { filter: grayscale(1); }

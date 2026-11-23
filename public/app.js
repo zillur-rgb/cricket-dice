@@ -880,7 +880,7 @@
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Team of the Round</b> ⭐: after every Städteliga round (all three divisions) and every Städtepokal round, the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</li>
         <li><b>Derbies</b> 🔥: neighbouring clubs (Nordderby Hamburg v Bremen, Rheinderby Köln v Düsseldorf, Sachsenderby Leipzig v Dresden and more) get a derby tag and a head-to-head record. Only a label: the match plays the same.</li>
-        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face. On the player card, the 📷 button on the face swaps the drawn face for your own picture (shown in black and white).</li>
+        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
@@ -1456,7 +1456,6 @@
 
   // ======================= PLAYER FACES =======================
   // Every player gets a comic-style face, drawn from their id so it never changes, wearing the club's colour.
-  // A picture uploaded on the player card (p.photo, 96×96 JPEG) replaces it.
   const AV_SKIN = ['#f7dcc3', '#efc4a0', '#e3ad84', '#cf9266', '#b57749', '#955a35', '#774427', '#5c331d'];
   const AV_HAIR = ['#1c1714', '#2e2119', '#45291a', '#663d22', '#8d5428', '#b9793a', '#ddb36a', '#c4441f', '#8a8a8a', '#e6e1d8', '#6c3fa0', '#2f6cb8'];
   const AV_INK = '#2a1f19';
@@ -1526,14 +1525,11 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     return t ? t.color : '#888';
   }
   function faceSrc(pid, name) {
-    const p = pid && state.db ? pmap()[pid] : null;
-    if (p && p.photo) return p.photo;
     const color = pid ? clubColorOf(pid) : '#888', key = (pid || name) + '|' + color;
     if (!faceCache.has(key)) faceCache.set(key, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(avatarSVG(pid || name, color)));
     return faceCache.get(key);
   }
-  const hasPhoto = pid => { const p = pid && state.db ? pmap()[pid] : null; return !!(p && p.photo); };
-  const faceImg = (pid, size, name) => `<img class="face ${size || ''}${hasPhoto(pid) ? ' photo' : ''}" src="${faceSrc(pid, name)}" alt="" aria-hidden="true" draggable="false">`;
+  const faceImg = (pid, size, name) => `<img class="face ${size || ''}" src="${faceSrc(pid, name)}" alt="" aria-hidden="true" draggable="false">`;
   // put a small face in front of every player link
   function decorateFaces(rootEl) {
     (rootEl || app).querySelectorAll('.plink[data-player]').forEach(b => {
@@ -1541,30 +1537,6 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
       b.insertAdjacentHTML('afterbegin', faceImg(b.dataset.player));
     });
   }
-  // shrink an uploaded picture to a 96×96 square (cropped from the centre, a little toward the top for faces)
-  async function photoFromFile(file) {
-    const url = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
-    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-    const S = 96, cv = document.createElement('canvas'); cv.width = cv.height = S;
-    const k = Math.min(img.naturalWidth, img.naturalHeight);
-    const sx = (img.naturalWidth - k) / 2, sy = Math.max(0, (img.naturalHeight - k) / 3);
-    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, S, S);
-    ctx.drawImage(img, sx, sy, k, k, 0, 0, S, S);
-    // black and white
-    const px = ctx.getImageData(0, 0, S, S), d = px.data;
-    for (let i = 0; i < d.length; i += 4) { const y = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]); d[i] = d[i + 1] = d[i + 2] = y; }
-    ctx.putImageData(px, 0, 0);
-    let q = 0.8, out = cv.toDataURL('image/jpeg', q);
-    while (out.length > 9000 && q > 0.4) { q -= 0.1; out = cv.toDataURL('image/jpeg', q); }
-    return out;
-  }
-  async function setPlayerPhoto(pid, photo) {
-    const p = state.db.players.find(x => x.id === pid), old = p.photo;
-    if (photo) p.photo = photo; else delete p.photo;
-    if (!(await save())) { if (old) p.photo = old; else delete p.photo; return false; }
-    return true;
-  }
-
   // ======================= ACHIEVEMENT BANNERS =======================
   // A banner slides in at the top for every milestone: face, name and the numbers. Tap to open the player.
   const bannerQ = [];
@@ -3391,9 +3363,7 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     const oldLbl = showLiga ? 'Länderliga (old)' : 'Länderliga';
     const totrN = C.clubEra(db) ? (C.totrCounts(db)[pid] || 0) : 0;
     modalCard.innerHTML = `<div class="pc-top">
-      <div class="pc-face">${faceImg(pid, 'hero')}
-        <label class="ph-btn ph-cam" for="photo-in" title="${p.photo ? 'Change photo' : 'Add a photo'}" aria-label="${p.photo ? 'Change photo' : 'Add a photo'}">📷</label>${p.photo ? '<button class="ph-btn ph-rm" id="btn-photo-rm" title="Remove photo" aria-label="Remove photo">✕</button>' : ''}
-        <input type="file" id="photo-in" accept="image/*" hidden></div>
+      <div class="pc-face">${faceImg(pid, 'hero')}</div>
       <div class="pc-id"><div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
       <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div></div>
       </div>
@@ -3423,17 +3393,6 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     const back = state.modalBack;
     modalCard.querySelectorAll('.h2h [data-player]').forEach(b => b.onclick = () => openPlayer(b.dataset.player, { back: () => openPlayer(pid, back ? { back } : undefined) }));
     decorateFaces(modalCard.querySelector('.h2h-grid') || modalCard.querySelector('.pc-id'));
-    const pin = document.getElementById('photo-in');
-    pin.onchange = async () => {
-      const file = pin.files && pin.files[0];
-      if (!file) return;
-      try {
-        const photo = await photoFromFile(file);
-        if (await setPlayerPhoto(pid, photo)) { showToast('Photo saved'); openPlayer(pid, back ? { back } : undefined); } else showToast(state.saveMsg || 'Could not save the photo', true);
-      } catch (e) { showToast('That picture could not be read. Try a JPEG or PNG.', true); }
-    };
-    const prm = document.getElementById('btn-photo-rm');
-    if (prm) prm.onclick = async () => { if (await setPlayerPhoto(pid, null)) openPlayer(pid, back ? { back } : undefined); };
     const form = document.getElementById('rename-form');
     document.getElementById('btn-rename').onclick = () => { form.hidden = false; const i = document.getElementById('rename-in'); i.focus(); i.select(); };
     document.getElementById('rename-cancel').onclick = () => { form.hidden = true; };
