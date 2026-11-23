@@ -880,7 +880,7 @@
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Team of the Round</b> ⭐: after every Städteliga round (all three divisions) and every Städtepokal round, the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</li>
         <li><b>Derbies</b> 🔥: neighbouring clubs (Nordderby Hamburg v Bremen, Rheinderby Köln v Düsseldorf, Sachsenderby Leipzig v Dresden and more) get a derby tag and a head-to-head record. Only a label: the match plays the same.</li>
-        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face.</li>
+        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's name and numbers.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
@@ -1454,91 +1454,8 @@
   const tcolor = (kind, id) => C.teamOf(state.db, kind, id).color;
   const chipTeam = (kind, id) => `<span class="tchip" data-team="${kind}:${id}" role="button" tabindex="0"><span class="dot" style="background:${tcolor(kind, id)}"></span>${esc(tname(kind, id))}</span>`;
 
-  // ======================= PLAYER FACES =======================
-  // Every player gets a comic-style face, drawn from their id so it never changes, wearing the club's colour.
-  const AV_SKIN = ['#f7dcc3', '#efc4a0', '#e3ad84', '#cf9266', '#b57749', '#955a35', '#774427', '#5c331d'];
-  const AV_HAIR = ['#1c1714', '#2e2119', '#45291a', '#663d22', '#8d5428', '#b9793a', '#ddb36a', '#c4441f', '#8a8a8a', '#e6e1d8', '#6c3fa0', '#2f6cb8'];
-  const AV_INK = '#2a1f19';
-  function avRand(seed) {
-    let h = 2166136261;
-    for (const c of String(seed)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-    let a = h >>> 0;
-    return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  }
-  const pickW = (r, list) => { let x = r() * list.reduce((s, it) => s + it[1], 0); for (const [v, w] of list) { if ((x -= w) < 0) return v; } return list[0][0]; };
-  function tint(color, l) {
-    const m = /hsl\(\s*([\d.]+)[\s,]+([\d.]+)%[\s,]+([\d.]+)%/.exec(color || '');
-    return m ? `hsl(${m[1]} ${Math.min(55, +m[2])}% ${l}%)` : '#ece5d8';
-  }
-  function avatarSVG(seed, shirt) {
-    const r = avRand(seed);
-    const skin = AV_SKIN[Math.floor(r() * AV_SKIN.length)];
-    const hc = AV_HAIR[pickW(r, [[0, 6], [1, 5], [2, 4], [3, 3], [4, 2], [5, 1.5], [6, 1.5], [7, 0.8], [8, 0.8], [9, 0.4], [10, 0.35], [11, 0.35]])];
-    const style = pickW(r, [['short', 4], ['side', 4], ['long', 5], ['bun', 2], ['afro', 2], ['ponytail', 3], ['spiky', 2], ['buzz', 2], ['bald', 1], ['mohawk', 0.7]]);
-    const beard = ['long', 'bun', 'ponytail'].includes(style) ? (r() < 0.06 ? 'stubble' : 'none') : pickW(r, [['none', 5], ['stubble', 2], ['full', 1.5], ['moustache', 1]]);
-    const band = style !== 'mohawk' && r() < 0.16, glasses = r() < 0.11, happy = r() < 0.18;
-    const mouth = pickW(r, [['smile', 5], ['grin', 3], ['flat', 1.2], ['o', 0.6]]);
-    const brow = r() < 0.5 ? 0 : r() < 0.5 ? -1 : 1;
-    const S = sw => `stroke="${AV_INK}" stroke-width="${sw || 1.6}" stroke-linejoin="round"`;
-    const hp = d => `<path d="${d}" fill="${hc}" ${S()}/>`;
-    let back = '', front = '';
-    const shortTop = 'M18 27C17 15 25 11 32 11C40 11 47 15 46 27C43 20 38 18 32 19C26 18 21 20 18 27Z';
-    const sideTop = 'M18 28C16 14 26 10 33 10C42 10 48 16 46 28C44 22 40 19 34 19C30 22 24 23 18 28Z';
-    if (style === 'short') front = hp(shortTop);
-    else if (style === 'side') front = hp(sideTop);
-    else if (style === 'buzz') front = `<path d="M18.5 25C19 15 26 12.5 32 12.5C38 12.5 45 15 45.5 25C42 19 37 17 32 17C27 17 22 19 18.5 25Z" fill="${hc}" opacity=".85"/>`;
-    else if (style === 'long') { back = hp('M15 30C13 13 23 8 32 8C41 8 51 13 49 30L51 52C46 54 42 51 40 47L24 47C22 51 18 54 13 52Z'); front = hp('M18 28C18 15 25 11 32 11C39 11 46 15 46 28C42 21 37 17 33 17C30 21 24 25 18 28Z'); }
-    else if (style === 'bun') { back = `<circle cx="32" cy="9" r="6.5" fill="${hc}" ${S()}/>`; front = hp('M18 26C18 15 25 12 32 12C39 12 46 15 46 26C42 20 37 18 32 18C27 18 22 20 18 26Z'); }
-    else if (style === 'ponytail') { back = hp('M43 17C55 18 56 40 49 48C50 37 48 28 43 25Z'); front = hp(sideTop); }
-    else if (style === 'afro') { back = `<circle cx="32" cy="24" r="19.5" fill="${hc}" ${S()}/>`; front = [19, 24.5, 30, 35.5, 41, 45].map((x, i) => `<circle cx="${x}" cy="${i === 0 || i === 5 ? 21 : 16.5}" r="4.6" fill="${hc}"/>`).join(''); }
-    else if (style === 'spiky') front = hp('M18 26L18.5 15L23 17.5L24.5 9L29 14L32 7L35 14L39.5 9L41 17.5L45.5 15L46 26C42 20 37 18 32 18C27 18 22 20 18 26Z');
-    else if (style === 'mohawk') front = hp('M28.5 21L28 5L32 9L36 4.5L35.5 21C34 19 30 19 28.5 21Z');
-    let bd = '';
-    if (beard === 'stubble') bd = `<path d="M18.5 31C19.5 44 26 46 32 46C38 46 44.5 44 45.5 31C43 38 39 40.5 32 40.5C25 40.5 21 38 18.5 31Z" fill="${hc}" opacity=".3"/>`;
-    else if (beard === 'full') bd = `<path d="M18.5 30C19 45 26 48.5 32 48.5C38 48.5 45 45 45.5 30C43 38 39 40 32 40C25 40 21 38 18.5 30Z" fill="${hc}" ${S()}/>`;
-    else if (beard === 'moustache') bd = `<path d="M26.5 37.2Q32 33.4 37.5 37.2Q32 35.9 26.5 37.2Z" fill="${hc}" ${S(1.1)}/>`;
-    const eyes = happy
-      ? `<path d="M24.5 30.5q2-2.4 4 0M35.5 30.5q2-2.4 4 0" fill="none" ${S()}/>`
-      : `<ellipse cx="26.5" cy="30" rx="1.9" ry="2.4" fill="${AV_INK}"/><ellipse cx="37.5" cy="30" rx="1.9" ry="2.4" fill="${AV_INK}"/><circle cx="27.1" cy="29.1" r=".65" fill="#fff"/><circle cx="38.1" cy="29.1" r=".65" fill="#fff"/>`;
-    const brows = `<path d="M23.5 ${25.5 + brow}q3-2.2 6 ${-brow}M34.5 ${25.5 - brow}q3-2.2 6 ${brow}" fill="none" stroke="${style === 'bald' || hc === '#e6e1d8' ? AV_INK : hc}" stroke-width="1.9" stroke-linecap="round"/>`;
-    const mth = mouth === 'grin' ? `<path d="M27 37.5Q32 43.5 37 37.5Z" fill="#fff" ${S(1.3)}/>`
-      : mouth === 'flat' ? `<path d="M28.5 38.6h7" ${S(1.5)} stroke-linecap="round"/>`
-      : mouth === 'o' ? `<ellipse cx="32" cy="38.6" rx="1.9" ry="2.2" fill="${AV_INK}"/>`
-      : `<path d="M27.5 37.6q4.5 3.8 9 0" fill="none" ${S()} stroke-linecap="round"/>`;
-    const gl = glasses ? `<g fill="none" ${S(1.3)}><circle cx="26.5" cy="30" r="4"/><circle cx="37.5" cy="30" r="4"/><path d="M30.5 30h3M22.5 29.5l-4-1M41.5 29.5l4-1"/></g>` : '';
-    const hb = band ? `<path d="M17.8 23.5C24 19 40 19 46.2 23.5L46.2 27C40 22.5 24 22.5 17.8 27Z" fill="${shirt}" ${S(1.2)}/>` : '';
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><clipPath id="c"><circle cx="32" cy="32" r="32"/></clipPath></defs><g clip-path="url(#c)">
-<rect width="64" height="64" fill="${tint(shirt, 86)}"/>${back}
-<rect x="27" y="38" width="10" height="11" rx="3" fill="${skin}" ${S()}/>
-<path d="M7 66C8 52 19 46.5 32 46.5C45 46.5 56 52 57 66Z" fill="${shirt}" ${S()}/><path d="M26.5 47L32 54L37.5 47" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>
-<ellipse cx="17.6" cy="31" rx="3" ry="4" fill="${skin}" ${S()}/><ellipse cx="46.4" cy="31" rx="3" ry="4" fill="${skin}" ${S()}/>
-<ellipse cx="32" cy="29.5" rx="14" ry="16" fill="${skin}" ${S()}/>${bd}
-<circle cx="22.6" cy="35.3" r="2.3" fill="#e5736a" opacity=".28"/><circle cx="41.4" cy="35.3" r="2.3" fill="#e5736a" opacity=".28"/>
-${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}" stroke-width="1.2" stroke-linecap="round"/>${mth}${gl}${front}${hb}</g></svg>`;
-  }
-  const faceCache = new Map();
-  function clubColorOf(pid) {
-    const db = state.db;
-    if (!db) return '#888';
-    for (const t of (C.clubEra(db) ? db.teams.cup : db.teams.league) || []) if (t.players.includes(pid)) return t.color;
-    const p = pmap()[pid], t = p && C.teamOf(db, 'cup', p.city);
-    return t ? t.color : '#888';
-  }
-  function faceSrc(pid, name) {
-    const color = pid ? clubColorOf(pid) : '#888', key = (pid || name) + '|' + color;
-    if (!faceCache.has(key)) faceCache.set(key, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(avatarSVG(pid || name, color)));
-    return faceCache.get(key);
-  }
-  const faceImg = (pid, size, name) => `<img class="face ${size || ''}" src="${faceSrc(pid, name)}" alt="" aria-hidden="true" draggable="false">`;
-  // put a small face in front of every player link
-  function decorateFaces(rootEl) {
-    (rootEl || app).querySelectorAll('.plink[data-player]').forEach(b => {
-      if (b.querySelector('.face, .face-skip') || b.closest('.no-faces')) return;
-      b.insertAdjacentHTML('afterbegin', faceImg(b.dataset.player));
-    });
-  }
   // ======================= ACHIEVEMENT BANNERS =======================
-  // A banner slides in at the top for every milestone: face, name and the numbers. Tap to open the player.
+  // A banner slides in at the top for every milestone: name and the numbers. Tap to open the player.
   const bannerQ = [];
   let bannerOn = false;
   function pushBanner(b) { if (!b) return; bannerQ.push(b); if (!bannerOn) nextBanner(); }
@@ -1563,19 +1480,13 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
       else if (b.open) b.open();
     };
   }
-  function clubChipOf(pid, club) {
-    const t = club ? C.teamOf(state.db, 'cup', club) : null;
-    const color = t ? t.color : clubColorOf(pid);
-    const name = t ? t.name : (() => { for (const x of state.db.teams.cup || []) if (x.players.includes(pid)) return x.name; return ''; })();
-    return name ? `<span class="ach-club"><span class="dot" style="background:${color}"></span>${esc(name)}</span>` : '';
-  }
   function playerBanner(icon, kicker, pid, stat, sub, name) {
     const p = pid ? pmap()[pid] : null;
     const nm = p ? p.name : name || '';
     return {
       cls: 'one',
-      html: `<div class="ach-face" ${p ? `data-player="${pid}"` : ''}>${faceImg(pid, 'xl', nm)}</div>
-        <div class="ach-body"><div class="ach-kick">${icon} ${esc(kicker)}</div>
+      html: `<div class="ach-icon">${icon}</div>
+        <div class="ach-body"><div class="ach-kick">${esc(kicker)}</div>
         <div class="ach-name">${esc(nm)}</div>
         <div class="ach-stat">${stat}</div>${sub ? `<div class="ach-sub">${sub}</div>` : ''}</div>`,
       open: p ? () => openPlayer(pid) : null,
@@ -1622,7 +1533,7 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     return {
       cls: 'six',
       html: `<div class="ach-body"><div class="ach-kick">⭐ TEAM OF THE ROUND · ${esc(T.comp.name)} ${esc(T.round.label)}</div>
-        <div class="ach-six">${T.players.map(x => `<span class="ach-p" data-player="${x.pid}">${faceImg(x.pid, 'lg')}<span>${esc(x.name.split(' ').slice(-1)[0])}</span></span>`).join('')}</div></div>`,
+        <div class="ach-six">${T.players.map(x => `<span class="ach-p" data-player="${x.pid}"><span class="role-tag">${ROLE_TAG[(pmap()[x.pid] || {}).role] || ''}</span><span>${esc(x.name)}</span></span>`).join('')}</div></div>`,
       ms: 5200,
       open: () => { state.compTab[T.comp.kind] = 'totr'; openComp(T.comp.kind); },
     };
@@ -1644,8 +1555,7 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     return `<div class="totr">
       ${head ? `<div class="totr-head"><b>${esc(T.round.label)}</b><span class="muted">${esc(T.comp.name)} S${T.comp.season}</span></div>` : ''}
       <ul class="totr-list">${T.players.map(x => `<li class="${x === T.star ? 'star' : ''}">
-        <button class="plink totr-p" data-player="${x.pid}">${faceImg(x.pid, 'lg')}</button>
-        <div class="totr-info"><button class="plink" data-player="${x.pid}"><span class="face-skip"></span>${esc(x.name)}</button>${x === T.star ? ' <span title="Best of the round">⭐</span>' : ''}
+        <div class="totr-info"><button class="plink" data-player="${x.pid}">${esc(x.name)}</button>${x === T.star ? ' <span title="Best of the round">⭐</span>' : ''}
           <div class="totr-sub"><span class="role-tag">${ROLE_TAG[(pm[x.pid] || {}).role] || ''}</span>${x.club ? `<span class="dot" style="background:${tcolor('cup', x.club)}"></span>${esc(C.teamOf(state.db, 'cup', x.club).short)}` : ''} · ${line(x)}</div></div>
         <span class="totr-pts">${x.points}<small>pts</small></span></li>`).join('')}</ul>
     </div>`;
@@ -3096,7 +3006,6 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
   document.addEventListener('keydown', e => { if (e.key === 'Escape') hideQuick(); });
 
   function bindPlayerLinks(rootEl) {
-    decorateFaces(rootEl);
     (rootEl || app).querySelectorAll('[data-player]').forEach(b => b.onclick = e => { e.stopPropagation(); openPlayer(b.dataset.player); });
   }
 
@@ -3362,11 +3271,8 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     const hasOld = !showLiga;       // in the club era the old Länderliga isn't shown on the player card
     const oldLbl = showLiga ? 'Länderliga (old)' : 'Länderliga';
     const totrN = C.clubEra(db) ? (C.totrCounts(db)[pid] || 0) : 0;
-    modalCard.innerHTML = `<div class="pc-top">
-      <div class="pc-face">${faceImg(pid, 'hero')}</div>
-      <div class="pc-id"><div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
-      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div></div>
-      </div>
+    modalCard.innerHTML = `<div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
+      <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div>
       ${formLine}
       ${(() => { const aw = C.playerAwards(db)[pid]; return aw && aw.length ? `<div class="badges">${aw.slice().reverse().map(a => `<span class="badge" title="${esc(a.label)} · Season ${a.season}">${a.icon} ${esc(a.label)} · S${a.season}</span>`).join('')}</div>` : ''; })()}
       <form id="rename-form" class="rename-form" hidden>
@@ -3392,7 +3298,6 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => { state.modalBack = null; openMatchCard(b.dataset.match); });
     const back = state.modalBack;
     modalCard.querySelectorAll('.h2h [data-player]').forEach(b => b.onclick = () => openPlayer(b.dataset.player, { back: () => openPlayer(pid, back ? { back } : undefined) }));
-    decorateFaces(modalCard.querySelector('.h2h-grid') || modalCard.querySelector('.pc-id'));
     const form = document.getElementById('rename-form');
     document.getElementById('btn-rename').onclick = () => { form.hidden = false; const i = document.getElementById('rename-in'); i.focus(); i.select(); };
     document.getElementById('rename-cancel').onclick = () => { form.hidden = true; };
