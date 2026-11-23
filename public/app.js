@@ -880,7 +880,7 @@
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Team of the Round</b> ⭐: after every Städteliga round (all three divisions) and every Städtepokal round, the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</li>
         <li><b>Derbies</b> 🔥: neighbouring clubs (Nordderby Hamburg v Bremen, Rheinderby Köln v Düsseldorf, Sachsenderby Leipzig v Dresden and more) get a derby tag and a head-to-head record. Only a label: the match plays the same.</li>
-        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face. On the player card, 📷 Photo swaps the drawn face for your own picture (shown in black and white).</li>
+        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face. On the player card, the 📷 button on the face swaps the drawn face for your own picture (shown in black and white).</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
@@ -3392,7 +3392,7 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     const totrN = C.clubEra(db) ? (C.totrCounts(db)[pid] || 0) : 0;
     modalCard.innerHTML = `<div class="pc-top">
       <div class="pc-face">${faceImg(pid, 'hero')}
-        <div class="pc-photo-btns"><label class="link-btn" for="photo-in">📷 ${p.photo ? 'Change' : 'Photo'}</label>${p.photo ? '<button class="link-btn" id="btn-photo-rm">Remove</button>' : ''}</div>
+        <label class="ph-btn ph-cam" for="photo-in" title="${p.photo ? 'Change photo' : 'Add a photo'}" aria-label="${p.photo ? 'Change photo' : 'Add a photo'}">📷</label>${p.photo ? '<button class="ph-btn ph-rm" id="btn-photo-rm" title="Remove photo" aria-label="Remove photo">✕</button>' : ''}
         <input type="file" id="photo-in" accept="image/*" hidden></div>
       <div class="pc-id"><div class="cc-kicker">${roleName} · ${p.type === 'pace' ? 'Pace' : 'Spin'} · BAT ${p.bat} · BOWL ${p.bowl}</div>
       <div class="name-row"><h2 style="margin:4px 0">${esc(p.name)}${formIcon(fm)}</h2><button class="link-btn" id="btn-rename">✏️ Rename</button></div></div>
