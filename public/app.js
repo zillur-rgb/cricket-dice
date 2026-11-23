@@ -880,7 +880,7 @@
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Team of the Round</b> ⭐: after every Städteliga round (all three divisions) and every Städtepokal round, the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</li>
         <li><b>Derbies</b> 🔥: neighbouring clubs (Nordderby Hamburg v Bremen, Rheinderby Köln v Düsseldorf, Sachsenderby Leipzig v Dresden and more) get a derby tag and a head-to-head record. Only a label: the match plays the same.</li>
-        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face. On the player card, 📷 Photo swaps the drawn face for your own picture.</li>
+        <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's face. On the player card, 📷 Photo swaps the drawn face for your own picture (shown in black and white).</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
         <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
@@ -1532,7 +1532,8 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     if (!faceCache.has(key)) faceCache.set(key, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(avatarSVG(pid || name, color)));
     return faceCache.get(key);
   }
-  const faceImg = (pid, size, name) => `<img class="face ${size || ''}" src="${faceSrc(pid, name)}" alt="" aria-hidden="true" draggable="false">`;
+  const hasPhoto = pid => { const p = pid && state.db ? pmap()[pid] : null; return !!(p && p.photo); };
+  const faceImg = (pid, size, name) => `<img class="face ${size || ''}${hasPhoto(pid) ? ' photo' : ''}" src="${faceSrc(pid, name)}" alt="" aria-hidden="true" draggable="false">`;
   // put a small face in front of every player link
   function decorateFaces(rootEl) {
     (rootEl || app).querySelectorAll('.plink[data-player]').forEach(b => {
@@ -1549,6 +1550,10 @@ ${eyes}${brows}<path d="M32.2 31.2q-1.8 3.9.9 4.6" fill="none" stroke="${AV_INK}
     const sx = (img.naturalWidth - k) / 2, sy = Math.max(0, (img.naturalHeight - k) / 3);
     const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, S, S);
     ctx.drawImage(img, sx, sy, k, k, 0, 0, S, S);
+    // black and white
+    const px = ctx.getImageData(0, 0, S, S), d = px.data;
+    for (let i = 0; i < d.length; i += 4) { const y = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]); d[i] = d[i + 1] = d[i + 2] = y; }
+    ctx.putImageData(px, 0, 0);
     let q = 0.8, out = cv.toDataURL('image/jpeg', q);
     while (out.length > 9000 && q > 0.4) { q -= 0.1; out = cv.toDataURL('image/jpeg', q); }
     return out;

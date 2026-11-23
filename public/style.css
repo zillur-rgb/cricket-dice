@@ -346,8 +346,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .champ .trophy { font-size: 40px; }
 .champ > div:nth-child(2) { flex: 1; min-width: 200px; }
 .champ-name { font-size: 36px; color: var(--accent); }
-.scroll-tabs { overflow-x: auto; scrollbar-width: none; }
-.scroll-tabs .tab { white-space: nowrap; }
+.scroll-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x pan-y; border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line); }
+.scroll-tabs::-webkit-scrollbar { display: none; }
+.scroll-tabs .tab { white-space: nowrap; flex: 0 0 auto; margin-bottom: 0; }
 .note { font-size: 13px; margin: 10px 0 0; }
 table.standings td:nth-child(2) { font-family: var(--body); text-align: left; }
 table.standings th:nth-child(2) { text-align: left; }
@@ -952,3 +953,5 @@ body.no-scroll { overflow: hidden; }
 .parts-lbl { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 11px; width: 100%; }
 .h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
 .ach[hidden] { display: none; }
+/* uploaded photos are shown in black and white (also ones uploaded before) */
+.face.photo { filter: grayscale(1); }
