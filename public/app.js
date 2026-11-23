@@ -1471,7 +1471,7 @@
     void el.offsetWidth; el.classList.add('in');
     let t = null;
     const done = () => { clearTimeout(t); el.onclick = null; el.classList.remove('in'); setTimeout(nextBanner, 320); };
-    t = setTimeout(done, b.ms || 4200);
+    t = setTimeout(done, b.ms || 9200);
     el.onclick = e => {
       done();
       if (e.target.closest('.ach-x')) return;
@@ -1528,15 +1528,6 @@
   function pomBanner(dbm) {
     if (!dbm || !dbm.motm) return null;
     return playerBanner('⭐', 'PLAYER OF THE MATCH', dbm.motm, esc(C.figuresLine(dbm.innings, dbm.motm)), esc(dbm.result));
-  }
-  function totrBanner(T) {
-    return {
-      cls: 'six',
-      html: `<div class="ach-body"><div class="ach-kick">⭐ TEAM OF THE ROUND · ${esc(T.comp.name)} ${esc(T.round.label)}</div>
-        <div class="ach-six">${T.players.map(x => `<span class="ach-p" data-player="${x.pid}"><span class="role-tag">${ROLE_TAG[(pmap()[x.pid] || {}).role] || ''}</span><span>${esc(x.name)}</span></span>`).join('')}</div></div>`,
-      ms: 5200,
-      open: () => { state.compTab[T.comp.kind] = 'totr'; openComp(T.comp.kind); },
-    };
   }
 
   // ======================= DERBIES / TEAM OF THE ROUND =======================
@@ -2438,12 +2429,12 @@
     // achievement banners: Player of the Match for a played match, the best performances of simulated ones,
     // and the Team of the Round when this match finished a round
     const dbm = f && f.matchId ? state.db.matches.find(x => x.id === f.matchId) : null;
-    const ach = state.achDue || (state.achDue = { perf: [], totr: [], pom: null });
+    const ach = state.achDue || (state.achDue = { perf: [], pom: null });
     if (mode === 'sim') ach.perf.push(...matchHighlights(dbm)); else ach.pom = pomBanner(dbm);
     if (comp && (comp.kind === 'liga' || comp.kind === 'cup')) {
       const r = C.roundsOf(state.db, comp).find(x => x.fx.some(y => y.id === fixtureId));
       const T = r && r.done ? C.teamOfRound(state.db, comp, r.key) : null;
-      if (T) ach.totr.push(T);
+      if (T) (state.totrQ = state.totrQ || []).push(T);
     }
   }
   function flushAchievements() {
@@ -2451,7 +2442,6 @@
     if (!a) return;
     if (a.pom) pushBanner(a.pom);
     a.perf.sort((x, y) => y.score - x.score).slice(0, 3).forEach(x => pushBanner(x.b));
-    a.totr.slice(-2).forEach(T => pushBanner(totrBanner(T)));
   }
   function recordHolder(r) {
     const pm = pmap();
@@ -2460,16 +2450,41 @@
     if (r.team) return chipTeam(r.kind || 'cup', r.team);
     return '';
   }
+  function holderText(r) {
+    const pm = pmap();
+    if (r.pid && pm[r.pid]) return r.pid2 && pm[r.pid2] ? `${pm[r.pid].name} & ${pm[r.pid2].name}` : pm[r.pid].name;
+    return r.team ? tname(r.kind || 'cup', r.team) : '';
+  }
+  // after the record pop-up: Team of the Round pop-up(s), then the season ceremony
+  function afterRecords() {
+    const q = state.totrQ || [];
+    if (!q.length) { maybeCeremony(); return; }
+    if (!modal.hidden) return;
+    state.totrQ = [];
+    const list = q.slice(-3).reverse();
+    const kinds = [...new Set(list.map(T => T.comp.kind))];
+    modalCard.dataset.kind = '';
+    modalCard.innerHTML = `<div class="nr-burst">⭐</div>
+      <h2 class="nr-title">Team of the Round</h2>
+      <p class="muted note" style="text-align:center;margin:0 0 12px">The 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points. ⭐ best of the round.</p>
+      <div class="totr-grid">${list.map(T => totrCardHTML(T, true)).join('')}</div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:14px">${kinds.length === 1 ? '<button class="secondary" id="totr-all">All rounds</button>' : ''}<button class="primary" id="totr-close">Close</button></div>`;
+    modal.hidden = false;
+    bindPlayerLinks(modalCard);
+    document.getElementById('totr-close').onclick = () => { modal.hidden = true; maybeCeremony(); };
+    const all = document.getElementById('totr-all');
+    if (all) all.onclick = () => { modal.hidden = true; state.compTab[kinds[0]] = 'totr'; openComp(kinds[0]); };
+  }
   function showRecordPopup() {
     const list = state.newRecords || [];
-    if (!list.length) { maybeCeremony(); return; }
+    if (!list.length) { afterRecords(); return; }
     if (!modal.hidden) return;
     state.newRecords = [];
     const rows = list.map(r => `<li class="nr-row">
       <div class="cc-kicker">${esc(r.label)}</div>
       <div class="nr-val">${esc(String(r.val))}</div>
       <div class="nr-who">${recordHolder(r)}${r.sub ? ` <span class="muted">· ${esc(r.sub)}</span>` : ''}</div>
-      <div class="muted nr-prev">Old record: ${esc(String(r.prev.val))} · ${r.prev.pid && pmap()[r.prev.pid] ? esc(pmap()[r.prev.pid].name) : r.prev.team ? esc(tname(r.prev.kind || 'cup', r.prev.team)) : ''}</div>
+      <div class="muted nr-prev">Old record: ${esc(String(r.prev.val))} · ${esc(holderText(r.prev))}</div>
     </li>`).join('');
     modalCard.dataset.kind = '';
     modalCard.innerHTML = `<div class="nr-burst">🏆</div>
@@ -2478,7 +2493,7 @@
       <div class="btn-row" style="justify-content:flex-end;margin-top:14px"><button class="secondary" id="nr-all">All records</button><button class="primary" id="nr-close">Great</button></div>`;
     modal.hidden = false;
     bindPlayerLinks(modalCard);
-    document.getElementById('nr-close').onclick = () => { modal.hidden = true; maybeCeremony(); };
+    document.getElementById('nr-close').onclick = () => { modal.hidden = true; afterRecords(); };
     document.getElementById('nr-all').onclick = () => { modal.hidden = true; state.screen = 'history'; render(); setTimeout(() => { const el = document.getElementById('records-panel'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 50); };
   }
 

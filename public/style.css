@@ -899,10 +899,6 @@ body.no-scroll { overflow: hidden; }
 .ach-stat b { color: var(--accent); font-size: 15px; }
 .ach-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .ach-x { position: absolute; right: 8px; top: 6px; background: none; border: none; color: var(--muted); font-size: 22px; line-height: 1; padding: 4px; }
-.ach.six { padding-right: 36px; }
-.ach-six { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin-top: 8px; }
-.ach-p { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
-.ach-p span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .ach { transition: opacity .2s; } }
 
 /* ---------- derbies ---------- */
