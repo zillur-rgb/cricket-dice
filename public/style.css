@@ -934,3 +934,4 @@ body.no-scroll { overflow: hidden; }
 .parts-lbl { font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 11px; width: 100%; }
 .h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
 .ach[hidden] { display: none; }
+.h2h-last { font-size: 13px; padding: 0; border: 0; background: none; color: var(--text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 0; }

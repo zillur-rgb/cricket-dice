@@ -1535,9 +1535,9 @@
   function h2hLine(kind, a, b) {
     if (kind !== 'liga' && kind !== 'cup') return '';
     const h = C.headToHead(state.db, a, b);
-    if (!h.played) return '';
+    if (!h.played) return `<div class="h2h-line">Head-to-head: <b>first meeting</b> of these two clubs</div>`;
     const t = h.played - h.a - h.b;
-    return `<div class="h2h-line">Head-to-head: <b>${esc(tname(kind, a))} ${h.a}</b> – <b>${h.b} ${esc(tname(kind, b))}</b>${t ? ` · ${t} tied` : ''}</div>`;
+    return `<div class="h2h-line">Head-to-head: <b>${esc(tname(kind, a))} ${h.a}</b> – <b>${h.b} ${esc(tname(kind, b))}</b>${t ? ` · ${t} tied` : ''}${h.last && h.last.result ? `<br>Last meeting: <button class="link-btn h2h-last" data-match="${h.last.id}">${esc(h.last.result)}</button>` : ''}</div>`;
   }
   const ROLE_TAG = { bat: 'BAT', ar: 'AR', bowl: 'BOWL' };
   function totrCardHTML(T, head) {
@@ -2066,6 +2066,7 @@
     bindHomeBoard(document.getElementById('home-board'));
     bindRankPanel();
     app.querySelectorAll('.story-line[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
+    app.querySelectorAll('.h2h-last[data-match]').forEach(b => b.onclick = () => openMatchCard(b.dataset.match));
     app.querySelectorAll('[data-totr-open]').forEach(b => b.onclick = () => { state.compTab[b.dataset.totrOpen] = 'totr'; openComp(b.dataset.totrOpen); });
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openComp(b.dataset.open));
     app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { state.screen = b.dataset.go; render(); });
