@@ -883,7 +883,7 @@
         <li><b>Banners</b>: thirties, fifties, hat-tricks (3 wickets in 3 balls by one bowler) and 3+ wicket hauls get a banner with the player's name and numbers.</li>
         <li><b>Openers don't bowl</b> (league and cup): the two best batters open and never bowl. The other 4 share the overs (Städteliga 5, Städtepokal 6), max 2 each, never two in a row. A bowler's second over is bowled tired: −30 bowling rating for that over.</li>
         <li><b>Form</b> 🔥 ❄️: a player's last 5 matches compared with their career average give up to ±4 rating points for the next match. It's temporary and fades as new matches are played.</li>
-        <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), everyone else is drafted. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
+        <li><b>The draft</b> (between seasons): each club keeps its 2 best performers of the season (Städteliga and Städtepokal together), shown one keeper at a time; everyone else is drafted, revealed one round at a time with each player's last Städteliga and Städtepokal numbers. A draft rating (overall rating ±15 for last season's performance) decides who goes first; the weakest squad picks first, snake order. Draft ratings only count for the draft.</li>
         <li><b>Städtepokal</b>: 6 players, 6 overs. A batter retires not out after 12 balls. Retired batters come back in only when everyone else is out or retired.</li>
         <li><b>Extras</b>: wides (~3%) and no-balls (~0.7%). A no-ball gives a <b>free hit</b>: 30% four, 30% six, 20% single, 15% dot, 5% run-out (the only way to get out). Run-outs happen only on a free hit.</li>
       </ul>
@@ -2256,7 +2256,7 @@
   function openTransfers(kind) {
     state.compKind = 'cup';
     state.transferPlan = C.planTransfers(state.db, 'cup');
-    state.draftShown = 0; stopDraftAuto();
+    state.draftShown = 1; stopDraftAuto();
     if (!state.transferPlan) { showToast('The draft opens when both competitions are finished'); return; }
     state.screen = 'transfers';
     render();
@@ -2284,57 +2284,88 @@
   // just reveals the picks one by one.
   const draftForm = d => d >= 5 ? ' <span class="form-ic" title="Good season: draft rating up">🔥</span>' : d <= -5 ? ' <span class="form-ic" title="Poor season: draft rating down">❄️</span>' : '';
   const draftNum = x => `<span class="dr-num" title="Draft rating ${x.draft}: overall ${x.rating} ${x.delta >= 0 ? '+' : '−'} ${Math.abs(x.delta)} for last season">${x.draft}</span>`;
+  const numsLine = x => `${x.runs} run${x.runs === 1 ? '' : 's'} · ${x.wkts} wkt${x.wkts === 1 ? '' : 's'}${x.motm ? ` · ${x.motm} PoM` : ''} · ${x.mat} match${x.mat === 1 ? '' : 'es'}`;
+  const COMP_NAME = { liga: 'Städteliga', cup: 'Städtepokal', league: 'Länderliga' };
+  // last season, one line per competition (older saved drafts only have the combined numbers)
   function draftLine(x) {
     if (!x) return '';
+    if (x.byComp && x.byComp.length) {
+      const order = { liga: 0, league: 1, cup: 2 };
+      return x.byComp.slice().sort((a, b) => order[a.kind] - order[b.kind])
+        .map(c => `<span class="dr-comp"><b>${COMP_NAME[c.kind] || c.kind}:</b> ${c.mat ? numsLine(c) : 'did not play'}</span>`).join('');
+    }
     if (!x.mat) return 'no matches last season';
-    return `${x.runs} run${x.runs === 1 ? '' : 's'} · ${x.wkts} wkt${x.wkts === 1 ? '' : 's'}${x.motm ? ` · ${x.motm} PoM` : ''} in ${x.mat} match${x.mat === 1 ? '' : 'es'}`;
+    return numsLine(x).replace(/ · (\d+ match)/, ' in $1');
   }
 
-  // the draft's parts after `shown` picks
-  function draftParts(kind, plan, shown) {
-    const pm = pmap(), I = plan.info || {}, picks = plan.picks || [];
+  // The draft is revealed in stages: stage 1 = every club's 1st keeper, stage 2 = 2nd keeper,
+  // stage 2 + r = pick round r. `stage` Infinity shows everything.
+  function draftStages(plan) { const picks = plan.picks || []; return (plan.keep || 2) + (picks.length ? picks[picks.length - 1].round : 0); }
+  function draftParts(kind, plan, stage) {
+    const pm = pmap(), I = plan.info || {}, picks = plan.picks || [], keep = plan.keep || 2;
     const team = id => C.teamOf(state.db, kind, id) || { name: id, short: id, color: '#888' };
     const short = id => id ? esc(team(id).short || team(id).name) : 'no team';
-    const done = shown >= picks.length;
-    const next = picks[shown];
-    const rounds = picks.length ? picks[picks.length - 1].round : 0;
+    const total = draftStages(plan), rounds = total - keep;
+    stage = Math.min(stage, total);
+    const done = stage >= total;
+    const keptShown = Math.min(stage, keep), roundShown = Math.max(0, stage - keep);
+    const nextLabel = stage < keep ? `${stage + 1}${stage === 0 ? 'st' : 'nd'} keepers` : `Round ${roundShown + 1} of ${rounds}`;
     const status = done
-      ? `<div class="dr-pick-no">Draft complete · ${picks.length} picks</div><div class="muted">Every squad is full. Draft ratings are gone again: from now on matches use the normal ratings.</div>`
-      : `<div class="dr-pick-no">Pick ${shown + 1} of ${picks.length} · Round ${next.round} of ${rounds}</div>
-         <div class="dr-clock">On the clock: ${chipTeam(kind, next.team)}</div>`;
-    const feed = picks.slice(0, shown).reverse().map(x => {
+      ? `<div class="dr-pick-no">Draft complete · ${keep * plan.teams.length} kept + ${picks.length} picks</div><div class="muted">Every squad is full. Draft ratings are gone again: from now on matches use the normal ratings.</div>`
+      : stage === 0 ? `<div class="dr-pick-no">Ready</div><div class="dr-clock">First: each club shows the 1st player it keeps</div>`
+      : `<div class="dr-pick-no">${stage <= keep ? `${stage === 1 ? '1st' : '2nd'} keepers shown` : `Round ${roundShown} of ${rounds} done`}</div><div class="dr-clock">Next: ${nextLabel}</div>`;
+    const sub = (pid, extra) => { const p = pm[pid], d = I[pid]; return `<span class="dr-sub">${d ? `draft ${d.draft} (overall ${d.rating}) · ` : ''}bat ${p.bat} · bowl ${p.bowl}${extra || ''}</span><span class="dr-sub dr-perf">${d ? draftLine(d) : ''}</span>`; };
+    const pickRow = (x, isNew) => {
       const p = pm[x.pid], d = I[x.pid];
-      return `<li class="${x.n === shown ? 'dr-new' : ''}">
-        <span class="dr-n">R${x.round} · #${x.n}</span>
+      return `<li class="${isNew ? 'dr-new' : ''}">
+        <span class="dr-n">#${x.n}</span>
         <span class="dr-main"><span class="dr-team"><span class="dot" style="background:${team(x.team).color}"></span>${esc(team(x.team).name)}</span> select
           <button class="plink" data-player="${x.pid}">${esc(p.name)}</button>${d ? draftForm(d.delta) : ''}
-          <span class="dr-sub">${d ? `draft ${d.draft} (overall ${d.rating}) · ` : ''}bat ${p.bat} · bowl ${p.bowl} · ${d ? draftLine(d) : ''} · ${x.from === x.team ? 'back again' : 'from ' + short(x.from)}${x.need ? ` · needed a ${x.need === 'bat' ? 'batter' : 'bowler'}` : ''}</span></span>
+          ${sub(x.pid, ` · ${x.from === x.team ? 'back again' : 'from ' + short(x.from)}${x.need ? ` · needed a ${x.need === 'bat' ? 'batter' : 'bowler'}` : ''}`)}</span>
       </li>`;
-    }).join('');
-    const pickedSet = new Set(picks.slice(0, shown).map(x => x.pid));
-    const left = picks.slice(shown).map(x => x.pid).concat(plan.unsigned || []).filter(pid => !pickedSet.has(pid))
+    };
+    const keepRow = (t, k, isNew) => {
+      const pid = t.kept[k], p = pm[pid], d = I[pid];
+      if (!pid) return '';
+      return `<li class="${isNew ? 'dr-new' : ''}">
+        <span class="dr-n">keep</span>
+        <span class="dr-main"><span class="dr-team"><span class="dot" style="background:${team(t.id).color}"></span>${esc(team(t.id).name)}</span> keep
+          <button class="plink" data-player="${pid}">${esc(p.name)}</button>${d ? draftForm(d.delta) : ''}${sub(pid)}</span>
+      </li>`;
+    };
+    // newest stage first, each stage under its own heading
+    const blocks = [];
+    for (let r = roundShown; r >= 1; r--) {
+      const rows = picks.filter(x => x.round === r).map(x => pickRow(x, r === roundShown && stage > keep)).join('');
+      blocks.push(`<li class="dr-stage">Round ${r}</li>${rows}`);
+    }
+    for (let k = keptShown - 1; k >= 0; k--) blocks.push(`<li class="dr-stage">${k === 0 ? '1st' : '2nd'} keepers</li>${plan.teams.map(t => keepRow(t, k, stage === k + 1)).join('')}`);
+    const feed = blocks.join('');
+    const shownPicks = picks.filter(x => x.round <= roundShown);
+    const revealed = new Set(shownPicks.map(x => x.pid).concat(plan.teams.flatMap(t => t.kept.slice(0, keptShown))));
+    const left = picks.map(x => x.pid).concat(plan.unsigned || []).concat(plan.teams.flatMap(t => t.kept.slice(keptShown))).filter(pid => !revealed.has(pid))
       .sort((a, b) => ((I[b] && I[b].draft) || 0) - ((I[a] && I[a].draft) || 0));
     const pool = left.slice(0, 15).map(pid => {
       const p = pm[pid], d = I[pid];
-      return `<li><span class="dr-pl"><button class="plink" data-player="${pid}">${esc(p.name)}</button>${d ? draftForm(d.delta) : ''}<span class="dr-sub">${d && d.role === 'bat' ? 'batter' : 'bowler'} · bat ${p.bat} · bowl ${p.bowl} · ${draftLine(d)}</span></span>${d ? draftNum(d) : ''}</li>`;
+      return `<li><span class="dr-pl"><button class="plink" data-player="${pid}">${esc(p.name)}</button>${d ? draftForm(d.delta) : ''}<span class="dr-sub">${d && d.role === 'bat' ? 'batter' : 'bowler'} · bat ${p.bat} · bowl ${p.bowl}</span><span class="dr-sub dr-perf">${draftLine(d)}</span></span>${d ? draftNum(d) : ''}</li>`;
     }).join('');
     const size = C.COMPS[kind].squad;
     const squads = plan.teams.map(t => {
-      const got = picks.slice(0, shown).filter(x => x.team === t.id);
+      const got = shownPicks.filter(x => x.team === t.id), kept = t.kept.slice(0, keptShown);
       const row = (pid, tag) => `<li><button class="plink" data-player="${pid}">${esc(pm[pid].name)}</button><span class="rt">${tag}</span></li>`;
-      const empty = Math.max(0, size - t.kept.length - got.length);
-      return `<div class="tw-team ${next && next.team === t.id ? 'dr-on' : ''}">
+      const empty = Math.max(0, size - kept.length - got.length);
+      return `<div class="tw-team">
         <h3>${chipTeam(kind, t.id)}</h3>
-        <ul>${t.kept.map(pid => row(pid, 'kept')).join('')}${got.map(x => row(x.pid, `R${x.round}${I[x.pid] ? ' · ' + I[x.pid].draft : ''}`)).join('')}${'<li class="dr-empty">—</li>'.repeat(empty)}</ul>
+        <ul>${kept.map(pid => row(pid, 'kept')).join('')}${got.map(x => row(x.pid, `R${x.round}${I[x.pid] ? ' · ' + I[x.pid].draft : ''}`)).join('')}${'<li class="dr-empty">—</li>'.repeat(empty)}</ul>
       </div>`;
     }).join('');
-    return { status, feed, pool, poolLeft: left.length, squads, done };
+    return { status, feed, pool, poolLeft: left.length, squads, done, nextLabel };
   }
 
   // static view of a finished draft (the season's Draft tab)
   function draftHTML(kind, plan) {
     if (!plan.picks) return transfersHTML(kind, plan, `How the squads changed after season ${plan.fromSeason}.`);
-    const P = draftParts(kind, plan, plan.picks.length);
+    const P = draftParts(kind, plan, Infinity);
     const pm = pmap();
     return `<p class="muted note" style="margin-top:0">The draft after season ${plan.fromSeason}: each team kept ${plan.keep || 2}, then ${plan.picks.length} picks in snake order.</p>
       <div class="dr-cols"><div><h3 class="po-h">Picks</h3><ol class="dr-feed">${P.feed.replace(/ class="dr-new"/g, '')}</ol></div>
@@ -2347,15 +2378,14 @@
   function renderTransfers() {
     const plan = state.transferPlan, kind = plan.kind, cfg = C.COMPS[kind];
     if (!plan.picks) { stopDraftAuto(); return; }
-    if (state.draftShown == null) state.draftShown = 0;
+    if (state.draftShown == null) state.draftShown = 1;
     app.innerHTML = `<section class="comp draft">
       <div class="comp-head"><div><div class="cc-kicker">City clubs · before the next season</div><h1>The draft</h1>
-        <div class="muted dr-intro">Each club kept its ${plan.keep} best performers from last season (both competitions count). The squads play the Städteliga and the Städtepokal. Everyone else is in the draft. The team with the weakest squad picks first, snake order. Players are ranked by a <b>draft rating</b>: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season. It only counts for the draft: once the squads are full, everyone plays with their normal ratings again.</div></div></div>
+        <div class="muted dr-intro">First each club shows the ${plan.keep} players it keeps (its best performers last season, both competitions count), one at a time. Everyone else is in the draft, revealed one round at a time: every club picks one player per round, the team with the weakest squad first, snake order. Players are ranked by a <b>draft rating</b>: their overall rating (average of bat and bowl) moved up 🔥 or down ❄️ by up to 15 for how they played last season. It only counts for the draft: once the squads are full, everyone plays with their normal ratings again.</div></div></div>
       <div class="panel dr-bar">
         <div id="dr-status"></div>
         <div class="dr-btns">
-          <button class="primary" id="dr-next">Next pick</button>
-          <button class="secondary" id="dr-auto">▶ Auto</button>
+          <button class="primary" id="dr-next">Pick next round</button>
           <button class="secondary" id="dr-skip">Skip to end</button>
           <button class="primary" id="tw-start" hidden>Start season ${plan.toSeason}</button>
           <button class="secondary" id="tw-cancel">Not now</button>
@@ -2371,23 +2401,18 @@
     const update = () => {
       const P = draftParts(kind, plan, state.draftShown);
       $('dr-status').innerHTML = P.status;
-      $('dr-feed').innerHTML = P.feed || '<li class="muted dr-wait">No picks yet. Tap “Next pick” or “Auto”.</li>';
+      $('dr-feed').innerHTML = P.feed || '<li class="muted dr-wait">Nothing shown yet.</li>';
       $('dr-pool').innerHTML = P.pool || '<li class="muted">Nobody left.</li>';
       $('dr-left').textContent = P.poolLeft ? `· ${P.poolLeft} left` : '';
       $('dr-squads').innerHTML = P.squads;
-      for (const id of ['dr-next', 'dr-auto', 'dr-skip']) $(id).hidden = P.done;
+      for (const id of ['dr-next', 'dr-skip']) $(id).hidden = P.done;
+      $('dr-next').textContent = state.draftShown < (plan.keep || 2) ? `Show ${P.nextLabel}` : 'Pick next round';
       $('tw-start').hidden = !P.done;
-      $('dr-auto').textContent = state.draftTimer ? '❚❚ Pause' : '▶ Auto';
-      if (P.done) stopDraftAuto();
+      $('dr-feed').scrollTop = 0;
       bindPlayerLinks(app);
     };
-    const step = () => { if (state.screen !== 'transfers' || state.transferPlan !== plan) return stopDraftAuto(); if (state.draftShown < plan.picks.length) state.draftShown++; update(); };
-    $('dr-next').onclick = () => { stopDraftAuto(); step(); };
-    $('dr-auto').onclick = () => {
-      if (state.draftTimer) stopDraftAuto(); else state.draftTimer = setInterval(step, 1000);
-      update();
-    };
-    $('dr-skip').onclick = () => { stopDraftAuto(); state.draftShown = plan.picks.length; update(); };
+    $('dr-next').onclick = () => { if (state.draftShown < draftStages(plan)) state.draftShown++; update(); };
+    $('dr-skip').onclick = () => { state.draftShown = draftStages(plan); update(); };
     $('tw-start').onclick = async () => {
       stopDraftAuto();
       const { liga } = C.applyTransfers(state.db, plan);

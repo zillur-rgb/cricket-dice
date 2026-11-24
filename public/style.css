@@ -935,3 +935,7 @@ body.no-scroll { overflow: hidden; }
 .h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
 .ach[hidden] { display: none; }
 .h2h-last { font-size: 13px; padding: 0; border: 0; background: none; color: var(--text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 0; }
+.dr-feed li.dr-stage { display: block; padding: 10px 4px 4px; border-bottom: 0; font-family: var(--display); text-transform: uppercase; letter-spacing: 1px; font-size: 13px; color: var(--accent); }
+.dr-perf { display: flex; flex-direction: column; gap: 1px; }
+.dr-comp b { color: var(--text); font-weight: 600; }
+.dr-feed li:not(.dr-stage) { grid-template-columns: 34px minmax(0, 1fr); }

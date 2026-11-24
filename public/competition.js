@@ -555,6 +555,8 @@
     const sd = per.length > 1 ? Math.sqrt(per.reduce((a, b) => a + (b - mean) ** 2, 0) / per.length) || 1 : 1;
     const full = Math.max(1, ...race.map(x => x.mat));
     const byPid = Object.fromEntries(race.map(x => [x.pid, x]));
+    // last season's numbers per competition (shown separately in the draft)
+    const perComp = (Array.isArray(last) ? last : [last]).map(c => ({ kind: c.kind, by: Object.fromEntries(seriesRace(db, c.id).map(x => [x.pid, x])) }));
     const out = {};
     for (const p of db.players) {
       const x = byPid[p.id];
@@ -572,6 +574,7 @@
         value: p.bat + p.bowl + Math.round(delta) * 2,   // draft value: who gets picked first (both skills + form)
         role: p.bat >= p.bowl ? 'bat' : 'bowl',
         mat: x ? x.mat : 0, runs: x ? x.runs : 0, wkts: x ? x.wkts : 0, motm: x ? x.motm : 0, points: x ? x.points : 0,
+        byComp: perComp.map(({ kind, by }) => { const y = by[p.id]; return { kind, mat: y ? y.mat : 0, runs: y ? y.runs : 0, wkts: y ? y.wkts : 0, motm: y ? y.motm : 0 }; }),
       };
     }
     return out;
