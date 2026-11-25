@@ -187,6 +187,13 @@
     let changed = false;
     if ((db.cupVersion || 1) < 2) { migrateV2(db); changed = true; }
     if (db.cupVersion < 3) { addNewClub(db); db.cupVersion = 3; changed = true; }
+    // A Städtepokal started on its own (not together with the Städteliga) belongs to the running
+    // club season, otherwise that season's ceremony and story can't find it.
+    const n = db.clubs && db.clubs.seasons;
+    if (n && !db.competitions.some(c => c.kind === 'cup' && c.clubSeason === n)) {
+      const cup = lastComp(db, 'cup');
+      if (cup && cup.clubSeason == null && db.competitions.some(c => c.kind === 'liga' && c.clubSeason === n)) { cup.clubSeason = n; changed = true; }
+    }
     return changed;
   }
   // Dresden + its 6 players. They play from the next season (running seasons keep their squads).
