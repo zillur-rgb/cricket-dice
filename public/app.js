@@ -870,12 +870,12 @@
       <ul>
         <li><b>Bowling plan</b>: Tight line cuts boundaries and wickets. Attack hunts wickets but leaks runs and more wides.</li>
         <li><b>Skill duel</b>: batter's batting rating vs bowler's bowling rating. Tailenders struggle against strike bowlers.</li>
-        <li><b>Getting set</b>: the first 2 balls are riskier. After 25 balls a batter is set: harder to get out and scores faster. <b>Openers</b> are never nervous and are set after 12 balls (in the Städtepokal they retire at 12, so only the no-nerves part counts there).</li>
+        <li><b>Getting set</b>: after 25 balls a batter is set: harder to get out and scores faster. <b>Openers</b> are set after 12 balls.</li>
         <li><b>Phase</b>: the powerplay boosts fours. Death overs boost sixes and wickets.</li>
         <li><b>Pitch</b>: flat roads help batters, green tops help pacers, dusty turners help spinners.</li>
         <li><b>Super Over</b>: a match can't end tied. If the scores are level, each team bats one over with its 3 best batters (2 wickets and they're out); the team that batted second goes first. Still level? Another Super Over. Super Over figures don't count in player stats.</li>
         <li><b>Last man stands</b> (league and cup): when everyone else is out, the last batter bats on alone and always keeps the strike. The innings ends when every batter is out.</li>
-        <li><b>City clubs</b>: 21 clubs of 6 players (Dresden joined as the 21st). Every club plays both competitions with the same squad: the <b>Städteliga</b> (three divisions of 7, one club rests each round; top 4 play semifinals and a final for each division's title; 2 up, 2 down by the table) and the <b>Städtepokal</b> (7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final). Both competitions are one season: the draft opens when both are finished. Seasons started before Dresden joined keep their old format (18 clubs in divisions of 6, 20 in the cup).</li>
+        <li><b>City clubs</b>: 21 clubs of 6 players (Dresden joined as the 21st). Every club plays both competitions with the same squad: the <b>Städteliga</b> (three divisions of 7, one club rests each round; the top of each table is champion, with no semifinals or final (seasons before this change still had them); 2 up, 2 down by the table) and the <b>Städtepokal</b> (7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final). Both competitions are one season: the draft opens when both are finished. Seasons started before Dresden joined keep their old format (18 clubs in divisions of 6, 20 in the cup).</li>
         <li><b>Award ceremony</b>: after the last match of a season a ceremony opens before the draft. For the 1., 2. and 3. Liga and the Städtepokal: champion, runner-up, player of the competition, best batter (most runs) and best bowler (most wickets). Then promoted and relegated clubs, moments of the season (highest score, best bowling, fastest fifty, closest finish), Golden Bat and Golden Ball (all competitions together), Club of the Season (biggest climb in the club ranking), the Double, the Team of the Season (2 batters, 2 all-rounders, 2 bowlers and a captain) and the Player of the Season. Winners keep a badge on their player card; History has a Hall of Fame and every ceremony can be watched again.</li>
         <li><b>Club ranking</b>: every club started at 1000 points. After each Städteliga or Städtepokal match the winner takes points from the loser: more for beating a stronger club, a little more for a big win, more in semifinals and finals. Points carry over between seasons. The ▲/▼ arrow shows how many places a club moved since the start of the current round.</li>
         <li><b>Team of the Round</b> ⭐: after every Städteliga round (all three divisions) and every Städtepokal round, the 2 best batters, 2 best all-rounders and 2 best bowlers by Player of the Match points.</li>
@@ -2091,7 +2091,7 @@
         : `<div style="margin-top:16px"><button class="primary" id="btn-new-season">Start season 1${C.clubEra(db) ? ' (Städteliga + Städtepokal)' : ''}</button></div>`;
       app.innerHTML = `<section>
         <div class="setup-hero"><h1>${cfg.name}</h1><p>${kind === 'liga'
-          ? `All 21 city clubs, with the same squads they use in the Städtepokal, in three divisions of 7: the 1. Liga, 2. Liga and 3. Liga. Every club plays its own division once (6 matches, one club rests each round), ${cfg.overs} overs a side. The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Städteliga champion, the 2. and 3. Liga finals their own champions. The bottom 2 of the 1. and 2. Liga go down, the top 2 of the 2. and 3. Liga go up.`
+          ? `All 21 city clubs, with the same squads they use in the Städtepokal, in three divisions of 7: the 1. Liga, 2. Liga and 3. Liga. Every club plays its own division once (6 matches, one club rests each round), ${cfg.overs} overs a side. No semifinals or finals: the top of each table is champion (most points, then net run rate). The 1. Liga winner is the Städteliga champion. The bottom 2 of the 1. and 2. Liga go down, the top 2 of the 2. and 3. Liga go up.`
           : kind === 'league'
           ? `All 16 German states, 7 players each, ${cfg.overs}-over matches, in two divisions of 8: the 1. Liga and the 2. Liga. Every team plays its own division once (7 matches). The top 4 of each division play semifinals and a final: the 1. Liga final crowns the Länderliga champion, the 2. Liga final the 2. Liga champion. The bottom 2 of the 1. Liga go down and the top 2 of the 2. Liga go up. The 1. Liga's 6th plays the 2. Liga's 3rd in a play-off, and the winner plays in the 1. Liga next season. Last man stands: when everyone else is out, the last batter bats on alone.`
           : `21 city clubs, 6 players each, ${cfg.overs}-over matches. The two openers don't bowl, so the other four share the overs (max 2 each), and a batter retires not out after ${cfg.maxBallsPerBatter} balls. Last man stands: when everyone else is out, the last batter bats on alone. 7 groups of 3; the top 2 of each group and the 2 best third-placed clubs reach the Round of 16, then quarterfinals, semifinals and the final.`}</p></div>
@@ -2106,7 +2106,7 @@
       return;
     }
     const baseTabs = kind === 'liga'
-      ? [['div1', '1. Liga'], ['div2', '2. Liga'], ['div3', '3. Liga'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
+      ? [['div1', '1. Liga'], ['div2', '2. Liga'], ['div3', '3. Liga'], ...(comp && comp.tableOnly ? [] : [['playoffs', 'Playoffs']]), ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
       : kind === 'league'
       ? comp.format === 'div'
         ? [['div1', '1. Liga'], ['div2', '2. Liga'], ['playoffs', 'Playoffs'], ['fixtures', 'Fixtures'], ['leaders', 'Leaders'], ['squads', 'Squads']]
@@ -2135,8 +2135,8 @@
       top = `<div class="champ">
         <div class="trophy">🏆</div>
         <div><div class="cc-kicker">Season ${comp.season} champions</div><h2 class="champ-name">${esc(S.champion)}</h2>
-        <div class="muted">${esc(S.final.result)} · Player of the final: ${esc(S.final.motm)}</div>
-        ${[2, 3].map(d => DC[d] ? `<div class="muted" style="font-size:14px;margin-top:4px">${d === 2 ? '🥈' : '🥉'} ${d}. Liga champions: <b>${esc(DC[d].champion)}</b> (${esc(DC[d].final.result)})</div>` : '').join('')}
+        <div class="muted">${S.final ? `${esc(S.final.result)} · Player of the final: ${esc(S.final.motm)}` : `Top of the 1. Liga table, ahead of ${esc(S.runnerUp)}`}</div>
+        ${[2, 3].map(d => DC[d] ? `<div class="muted" style="font-size:14px;margin-top:4px">${d === 2 ? '🥈' : '🥉'} ${d}. Liga champions: <b>${esc(DC[d].champion)}</b> (${DC[d].final ? esc(DC[d].final.result) : `top of the table, ahead of ${esc(DC[d].runnerUp)}`})</div>` : '').join('')}
         <div class="muted" style="font-size:14px;margin-top:4px">⬆ Up: <b>${S.promoted.map(esc).join(', ')}</b> · ⬇ Down: <b>${S.relegated.map(esc).join(', ')}</b></div></div>
         ${S.playerOfSeries ? `<div class="champ-pos">${seriesAwardHTML(comp)}</div>` : ''}
         ${nextBtn()}
@@ -2543,7 +2543,7 @@
       recordWithCheck(comp.id, f.id, C.simulateFixture(state.db, comp, f), 'sim');
     }
     if (comp.status === 'complete') {
-      state.compTab[comp.kind] = comp.kind === 'cup' ? 'knockout' : 'playoffs';
+      state.compTab[comp.kind] = comp.kind === 'cup' ? 'knockout' : comp.tableOnly ? 'div1' : 'playoffs';
       if (comp.summary.playerOfSeries) setTimeout(() => showToast(`Player of the series: ${comp.summary.playerOfSeries.name}`), 2200);
     }
     render();
@@ -2567,13 +2567,14 @@
     if (f.stage === 'league' && comp.divisions) return { type: 'div', d: f.div };
     return null;
   }
-  const zoneWord = (scope, comp) => scope.type === 'div' ? (scope.d === 1 || (comp && comp.kind === 'liga') ? 'in the semifinals' : 'promoted') : 'through';
+  const zoneWord = (scope, comp) => scope.type === 'div' ? (comp && comp.tableOnly ? 'champions' : scope.d === 1 || (comp && comp.kind === 'liga') ? 'in the semifinals' : 'promoted') : 'through';
   const namesJoin = arr => arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1];
 
   // Plain words: what a team needs (no percentages)
   function stakeNote(comp, scope, r, id) {
     const t = r.teams[id], kind = comp.kind, Z = zoneWord(scope, comp);
-    if (t.status === 'in') return `✓ ${scope.type === 'div' && scope.d >= 2 && kind !== 'liga' ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
+    if (t.status === 'in') return `✓ ${comp.tableOnly ? 'Champions' : scope.type === 'div' && scope.d >= 2 && kind !== 'liga' ? 'Promoted' : scope.type === 'div' ? 'In the semifinals' : 'Through'}`;
+    if (t.status === 'out' && comp.tableOnly) return 'Can\'t win the title';
     if (t.status === 'out') return comp.format === 'v3' && scope.type === 'group' ? 'Can\'t finish top 2 · can still go through as one of the 2 best third-placed clubs' : 'Out';
     const nm = x => tname(kind, x);
     const opp = namesJoin(t.left.map(nm));
@@ -2659,12 +2660,12 @@
         : comp.seededBy && d === 1 ? `<p class="muted note" style="margin-top:0">First Städteliga season: divisions set by ${comp.seededBy === 'cup' ? 'how far each club got in the last Städtepokal' : 'squad strength'}.</p>` : '';
       const ch = C.ligaChangeover(state.db, comp);
       const down = ch ? (d === 1 ? 1 : 0) : (d < 3 ? 2 : 0);
-      const cls = (i, n) => [i < 4 ? 'q' : '', d > 1 && i < 2 ? 'up' : '', down && i >= n - down ? 'rel' : ''].filter(Boolean).join(' ');
-      const note = `<span class="zone q">Top 4</span> play the semifinals for the ${d}. Liga title.`
+      const cls = (i, n) => [i < (comp.tableOnly ? 1 : 4) ? 'q' : '', d > 1 && i < 2 ? 'up' : '', down && i >= n - down ? 'rel' : ''].filter(Boolean).join(' ');
+      const note = (comp.tableOnly ? `<span class="zone q">Top of the table</span> wins the ${d === 1 ? 'Städteliga' : `${d}. Liga title`} (no semifinals or final).` : `<span class="zone q">Top 4</span> play the semifinals for the ${d}. Liga title.`)
         + (d > 1 ? ` <span class="zone up">Top 2</span> go up to the ${d - 1}. Liga.` : '')
         + (down ? ` <span class="zone rel">${down === 1 ? 'Bottom club' : 'Bottom 2'}</span> ${down === 1 ? 'goes' : 'go'} down to the ${d + 1}. Liga.` : '')
         + (ch ? ` <b>Changeover season:</b> from next season every division has 7 clubs (Dresden joins, and all 21 clubs play the Städteliga), so this time ${d === 1 ? 'only the bottom club goes down' : d === 2 ? 'nobody goes down' : 'the 3. Liga is joined by the 2 Städtepokal-only clubs and Dresden'}.` : '');
-      return intro + standingsTable('liga', rows, 0, cls) + `<p class="muted note">${note} Promotion and relegation go by this table. Win 2 pts. Level on points: net run rate decides.</p>` + (comp.stage === 'league' ? raceHTML(comp, { type: 'div', d }) : '');
+      return intro + standingsTable('liga', rows, 0, cls) + `<p class="muted note">${note} ${comp.tableOnly ? 'The title, promotion' : 'Promotion'} and relegation go by this table. Win 2 pts. Level on points: net run rate decides.</p>` + (comp.stage === 'league' && comp.status !== 'complete' ? raceHTML(comp, { type: 'div', d }) : '');
     }
     const prev = comp.divisionsFrom ? state.db.competitions.find(c => c.kind === 'league' && c.season === comp.divisionsFrom) : null;
     const moved = prev && prev.summary ? (d === 1 ? prev.summary.promoted : prev.summary.relegated) : null;
@@ -3092,7 +3093,7 @@
     let table = '';
     if (c.kind === 'liga') {
       const d = +Object.keys(c.divisions).find(k => c.divisions[k].includes(id));
-      const f = c.fixtures.find(x => x.stage === 'F' && x.div === d && x.result);
+      const f = C.ligaFinal(c, d);
       line = ''; cls = '';
       if (f && winnerOf(f) === id) { line = d === 1 ? 'Champion' : `${d}. Liga champion`; cls = d === 1 ? 'champ' : 'champ2'; }
       else if (f && (f.home === id || f.away === id)) { line = `${d}. Liga runner-up`; cls = 'runner'; }
@@ -3126,7 +3127,10 @@
   function clubHonours(id) {
     const db = state.db;
     const h = { cup: 0, liga: { 1: 0, 2: 0, 3: 0 }, up: 0, down: 0, doubles: [] };
-    const won = c => { const f = c.fixtures.find(x => x.stage === 'F' && x.result && (c.kind !== 'liga' || c.divisions && Object.keys(c.divisions).some(k => c.divisions[k].includes(id) && x.div === +k))); return f && f.result.winner === id; };
+    const won = c => {
+      const f = c.kind === 'liga' ? (c.divisions && C.ligaFinal(c, +Object.keys(c.divisions).find(k => c.divisions[k].includes(id)))) : c.fixtures.find(x => x.stage === 'F' && x.result);
+      return !!(f && f.result.winner === id);
+    };
     for (const c of db.competitions.filter(x => x.status === 'complete')) {
       if (c.kind === 'cup' && won(c)) h.cup++;
       if (c.kind === 'liga') {
@@ -3450,7 +3454,7 @@
         return `<div class="panel hist"><div class="cc-kicker">${c.kind === 'cup' ? 'Tournament' : 'League'} · in progress</div><h2>${c.name} · Season ${c.season}</h2><p class="muted">${C.STAGE_LABEL[c.stage]} · ${done} of ${c.fixtures.length} matches played</p><button class="secondary" data-open="${c.kind}">Open</button></div>`;
       }
       const S = c.summary;
-      const ko = k => `<div class="hk"><div class="cc-kicker">${esc(k.label)}</div><div>${esc(k.result)}</div><div class="muted" style="font-size:12px">${esc(k.score)}</div><button class="plink" data-match="${k.id}">Scorecard</button></div>`;
+      const ko = k => !k ? '' : `<div class="hk"><div class="cc-kicker">${esc(k.label)}</div><div>${esc(k.result)}</div><div class="muted" style="font-size:12px">${esc(k.score)}</div><button class="plink" data-match="${k.id}">Scorecard</button></div>`;
       const lst = (arr, key) => `<ol class="mini-list">${arr.slice(0, 3).map(x => `<li><button class="plink" data-player="${x.pid}">${esc(x.name)}</button> <span class="num">${key === 'runs' ? x.runs : x.wkts + ' wkts'}</span></li>`).join('')}</ol>`;
       return `<div class="panel hist">
         <div class="cc-kicker">${c.kind === 'cup' ? 'Tournament' : 'League'} · Season ${c.season} · finished ${new Date(c.finishedAt).toLocaleDateString()}</div>
