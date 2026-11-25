@@ -11,6 +11,9 @@
   function closeModalSoft() {
     if (modal.hidden || modalCard.querySelector('.bowler-list, #cf-mine')) return;
     if (state.modalBack) { const back = state.modalBack; state.modalBack = null; back(); return; }
+    // record and Team of the Round pop-ups lead on to the next pop-up (and the season's award ceremony)
+    const cont = modalCard.querySelector('#nr-close, #totr-close');
+    if (cont) { cont.click(); return; }
     const cancel = modalCard.querySelector('#cb-cancel');
     if (cancel) cancel.click(); else modal.hidden = true;
   }
@@ -1918,7 +1921,7 @@
       const q = id => el.querySelector('#' + id);
       q('cer-x').onclick = close;
       if (q('cer-close')) q('cer-close').onclick = close;
-      if (q('cer-draft')) q('cer-draft').onclick = () => { close(); openTransfers('cup'); };
+      if (q('cer-draft')) q('cer-draft').onclick = () => { close(); openTransfers('cup', { afterCeremony: true }); };
       if (q('cer-skip')) q('cer-skip').onclick = () => { si = slides.length - 1; shown = 0; draw(); };
       if (q('cer-next')) q('cer-next').onclick = next;
     };
@@ -2253,7 +2256,10 @@
   }
 
   // ---------- Transfer window between seasons ----------
-  function openTransfers(kind) {
+  function openTransfers(kind, opts) {
+    // the award ceremony always comes before the draft (unless it has been watched already)
+    const n = state.db.clubs && state.db.clubs.seasons;
+    if (!(opts && opts.afterCeremony) && n && C.seasonDone(state.db) && !ceremonySeen(n) && C.seasonCeremony(state.db, n)) { openCeremony(n, { draft: true }); return; }
     state.compKind = 'cup';
     state.transferPlan = C.planTransfers(state.db, 'cup');
     state.draftShown = 1; stopDraftAuto();
