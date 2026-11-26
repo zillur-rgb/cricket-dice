@@ -1596,19 +1596,6 @@
     if (!list || !list.length) return '';
     return `<div class="parts"><span class="parts-lbl">Partnerships</span>${list.map((p, i) => `<span class="part"><b>${p.r}${p.no ? '*' : ''}</b> (${p.b}) <span class="muted">${p.p.map(nameOf).map(esc).join(' & ')}</span></span>`).join('')}</div>`;
   }
-  function h2hHTML(pid) {
-    const H = C.playerHeadToHead(state.db, pid), pm = pmap();
-    if (!H.any) return `<h3 style="margin-top:14px">Head-to-head</h3><p class="muted note" style="margin-top:0">Batter v bowler numbers are collected from matches played from now on.</p>`;
-    const nm = id => `<button class="plink" data-player="${id}">${esc(pm[id] ? pm[id].name : id)}</button>`;
-    const sr = x => (x.b ? Math.round(100 * x.r / x.b) : '–');
-    const tbl = (title, head, rows) => rows.length ? `<div class="table-scroll"><table class="card h2h"><thead><tr><th>${title}</th>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
-    return `<h3 style="margin-top:14px">Head-to-head</h3>
-      <div class="h2h-grid">
-        ${tbl('Against bowlers', ['R', 'B', 'Out', 'SR'], H.asBat.slice(0, 6).map(x => `<tr><td>${nm(x.id)}</td><td><b>${x.r}</b></td><td>${x.b}</td><td>${x.o}</td><td>${sr(x)}</td></tr>`))}
-        ${tbl('Against batters', ['R', 'B', 'Wkts', 'SR'], H.asBowl.slice(0, 6).map(x => `<tr><td>${nm(x.id)}</td><td>${x.r}</td><td>${x.b}</td><td><b>${x.o}</b></td><td>${sr(x)}</td></tr>`))}
-      </div>
-      <p class="muted note" style="margin-top:4px">Most-faced opponents first. Counts matches played since head-to-head tracking started.</p>`;
-  }
   function fixtureLabel(comp, f) {
     if (f.label) return `${comp.name} ${f.label}`;
     if (f.stage === 'group') return `${comp.name} Group ${f.group}, match ${f.round}`;
@@ -3340,7 +3327,6 @@
       <h3 style="margin-top:14px">Bowling</h3>
       <div class="table-scroll"><table class="card"><thead><tr><th></th><th>Ov</th><th>M</th><th>R</th><th>W</th><th>Best</th><th>Avg</th><th>Econ</th><th>Dots</th></tr></thead><tbody>
         ${brow('Career', st.all, 'all')}${showLiga ? brow('Städteliga', st.liga, 'liga') : ''}${brow('Städtepokal', st.cup, 'cup')}${hasOld ? brow(oldLbl, st.league, 'league') : ''}</tbody></table></div>
-      ${h2hHTML(pid)}
       <h3 style="margin-top:14px">Recent matches</h3>
       <div class="ps-recents">${showLiga ? recentHTML('liga', 'Städteliga') : ''}${recentHTML('cup', 'Städtepokal')}${!showLiga ? recentHTML('league', oldLbl) : ''}</div>
       <div style="margin-top:14px"><button class="primary" id="btn-close-modal">${state.modalBack ? '← Back' : 'Close'}</button></div>`;
@@ -3348,7 +3334,6 @@
     document.getElementById('btn-close-modal').onclick = () => { if (state.modalBack) { const back = state.modalBack; state.modalBack = null; back(); } else modal.hidden = true; };
     modalCard.querySelectorAll('[data-match]').forEach(b => b.onclick = () => { state.modalBack = null; openMatchCard(b.dataset.match); });
     const back = state.modalBack;
-    modalCard.querySelectorAll('.h2h [data-player]').forEach(b => b.onclick = () => openPlayer(b.dataset.player, { back: () => openPlayer(pid, back ? { back } : undefined) }));
     const form = document.getElementById('rename-form');
     document.getElementById('btn-rename').onclick = () => { form.hidden = false; const i = document.getElementById('rename-in'); i.focus(); i.select(); };
     document.getElementById('rename-cancel').onclick = () => { form.hidden = true; };
