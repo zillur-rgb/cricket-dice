@@ -66,7 +66,7 @@ Both ask which profile and its PIN. The site address is remembered after the fir
 - **Derbies:** neighbouring clubs (e.g. Hamburg v Bremen, the Nordderby; Leipzig v Dresden, the Sachsenderby) get a 🔥 derby tag on fixtures, the next-up card, the scoreboard and the scorecard. Next matches show the clubs' head-to-head record. Derbies are only labels: they don't change how the match is played.
 - **Match reports:** every Städteliga and Städtepokal scorecard (and the result screen) has a short report: a headline and a few lines on the top scorers, best bowling, the key partnership and, in derbies, the head-to-head.
 - **Partnerships:** the engine records every partnership (runs, balls and the two batters, the last one unbroken \*). They're listed under each innings and count for the "Highest partnership" record.
-- **Head-to-head:** the engine records runs, balls and dismissals for each batter v bowler. The player card shows the opponents they've faced most, with bat and ball. Only matches played since this update count.
+- **Batter v bowler:** the engine still records runs, balls and dismissals for each batter v bowler in every match (kept in the saved scorecards), but the player card no longer shows it.
 - **Player of the Season:** the best player across both competitions, plus the best of each division and of the Städtepokal (home page between seasons, and in History).
 - **The old Länderliga** (16 states in two divisions, 7 players each) stays in History. A running Länderliga season is finished with the state squads; the switch to the city clubs happens at the next draft. Players keep their Länderliga stats as a separate "Länderliga (old)" row.
 
