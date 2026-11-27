@@ -1070,14 +1070,25 @@
     state.offline = false;
     state.savedIds = new Set(); state.compHash = {};
     let db;
-    if (copy && copy.dirty && copy.db) {
-      // this device has results that never reached the database: keep them and upload them now
-      useOfflineCopy(copy);
-      db = state.db;
-    } else if (j.empty) { db = C.newDB(); state.db = db; await save(); }
-    else db = await loadCloud(j);
+    try {
+      if (copy && copy.dirty && copy.db) {
+        // this device has results that never reached the database: keep them and upload them now
+        useOfflineCopy(copy);
+        db = state.db;
+        // ...but if this device's copy is missing saved matches, take them from the database too
+        if (!j.empty && (j.matchCount || 0) > db.matches.filter(m => state.savedIds.has(m.id)).length) {
+          const online = await fetchAllMatches(j.matchCount);
+          const have = new Set(db.matches.map(m => m.id));
+          const missing = online.filter(m => !have.has(m.id));
+          if (missing.length) db.matches = missing.concat(db.matches).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+          for (const m of online) state.savedIds.add(m.id);
+        }
+      } else if (j.empty) { db = C.newDB(); state.db = db; await save(); }
+      else db = await loadCloud(j);
+    } catch (e) { renderLoadError(e.message); return true; }
     state.db = db;
-    if (!db.stats || !Object.keys(db.stats).length) db.stats = C.computeStats(db);
+    // career numbers are always worked out again from the scorecards, so they can never drift
+    db.stats = C.computeStats(db);
     if (C.migrate(db) | C.refreshEmptyOldSeason(db) | C.upgradeLeaguePlayoffs(db)) await save();
     state.match = null; state.ctx = null;
     restoreLive();
@@ -1195,13 +1206,23 @@
     }
   }
 
-  async function loadCloud(core) {
+  // All saved scorecards, in pages of 100. A page that fails is tried again; if some still can't be
+  // loaded the app stops instead of carrying on with a partial history (which would show wrong
+  // career numbers and save them).
+  async function fetchAllMatches(count) {
     const matches = [];
-    while (matches.length < core.matchCount) {
-      const { res, j } = await api(`api/db?part=matches&skip=${matches.length}&limit=300`).catch(() => ({ res: { ok: false }, j: null }));
-      if (!res.ok || !j || !j.matches || !j.matches.length) break;
-      matches.push(...j.matches);
+    let fails = 0;
+    while (matches.length < count) {
+      const { res, j } = await api(`api/db?part=matches&skip=${matches.length}&limit=100`).catch(() => ({ res: { ok: false }, j: null }));
+      if (!res.ok || !j || !j.matches) { if (++fails >= 4) break; await new Promise(r => setTimeout(r, 700 * fails)); continue; }
+      if (!j.matches.length) break;
+      matches.push(...j.matches); fails = 0;
     }
+    if (matches.length < count) throw new Error(`Only ${matches.length} of your ${count} saved matches could be loaded. Nothing was changed. Please reload the page.`);
+    return matches;
+  }
+  async function loadCloud(core) {
+    const matches = await fetchAllMatches(core.matchCount);
     const db = { ...core.meta, competitions: core.competitions, matches, stats: core.stats };
     state.savedIds = new Set(matches.map(m => m.id));
     for (const comp of db.competitions) state.compHash[comp.id] = JSON.stringify(comp);
@@ -1211,7 +1232,7 @@
   function renderLoadError(msg) {
     app.innerHTML = `<div class="panel" style="margin-top:20px"><h2>Can't reach the database</h2>
       <p class="muted">${esc(msg)}</p>
-      <p class="muted">Check MONGODB_URI in your Vercel project settings, and that Atlas Network Access allows 0.0.0.0/0. Then redeploy and reload this page.</p></div>`;
+      ${/saved matches could be loaded/.test(msg) ? '<button class="primary" onclick="location.reload()">Reload</button>' : '<p class="muted">Check MONGODB_URI in your Vercel project settings, and that Atlas Network Access allows 0.0.0.0/0. Then redeploy and reload this page.</p>'}</div>`;
   }
 
   function sessionExpired() {
